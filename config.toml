@@ -1,0 +1,45 @@
+[system]
+project_name = "DAM_Classifier"
+seed = 42
+device = "cuda"
+run_name = "convnextv2_tiny_ms1"
+runs_dir = "runs"
+
+[data]
+csv_path = "labels/Score_j.xlsx"
+img_root_dir = "img_dataset"
+img_size = 420
+num_workers = 0
+
+[model]
+pretrained = true
+backbone = "convnextv2_tiny"
+num_classes = 48
+use_pose_pretrain = false
+pose_pretrain_backbone = "runs/pose_pretrain_convnext_tiny/backbone_pretrain.pth"
+
+[train]
+epochs = 65
+batch_size = 16
+learning_rate = 0.00005
+weight_decay = 0.3
+threshold = 0.5
+use_crop_to_ink = false
+
+# switch loss: 'bce' or 'asl'
+loss = "bce"
+
+lr_milestones = [15, 25, 35, 45, 55]
+lr_gamma = 0.5
+use_weighted_loss = true
+pos_weight_clamp = 9.0
+
+# ASL settings
+asl_gamma_neg = 3.0
+asl_gamma_pos = 0.0
+asl_clip = 0.05
+
+[cv]
+enabled = false
+num_runs = 5         # Number of Folds (k)
+seed = 999           # Specific seed for CV shuffling (overrides system seed)

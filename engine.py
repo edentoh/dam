@@ -127,14 +127,37 @@ class Trainer:
             current_val = v_macro if metric_key == 'val_f1_macro' else v_micro
             
             if current_val > best_metric:
-                best_metric = current_val
-                torch.save({
-                    'epoch': ep,
-                    'model_state': self.model.state_dict(),
-                    'best_metric_val': best_metric,
-                    'metric_name': metric_key,
-                    'config': self.cfg
-                }, best_path)
-                print(f"  --> New Best {metric_key}: {best_metric:.4f} saved")
+                best_metric = float(current_val)
+
+                # Save checkpoint (include full epoch metrics too)
+                ckpt = {
+                    "epoch": int(ep),
+                    "model_state": self.model.state_dict(),
+                    "metric_name": str(metric_key),
+                    "best_metric_val": float(best_metric),
+                    "epoch_metrics": row,                 # train_loss, val_loss, val_f1_micro, val_f1_macro, val_acc
+                    "learning_rate": float(curr_lr),
+                    "threshold": float(self.threshold),
+                    "config": self.cfg,
+                }
+                torch.save(ckpt, best_path)
+
+                # Save best metadata JSON (human-readable)
+                best_meta = {
+                    "saved_at": datetime.now().isoformat(timespec="seconds"),
+                    "run_dir": str(self.run_dir),
+                    "best_epoch": int(ep),
+                    "metric_for_best": str(metric_key),
+                    "best_metric_val": float(best_metric),
+                    "checkpoint_path": str(best_path),
+                    "history_path": str(self.run_dir / "history.json"),
+                    "learning_rate": float(curr_lr),
+                    "threshold": float(self.threshold),
+                    "epoch_metrics": row,
+                    "config": self.cfg,
+                }
+                atomic_write_json(self.run_dir / "best_model_metadata.json", best_meta)
+
+                print(f"  --> New Best {metric_key}: {best_metric:.4f} saved (+ metadata)")
 
         print("Training Finished.")

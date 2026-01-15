@@ -56,7 +56,7 @@ def train_single_run(cfg, run_dir, train_loader, val_loader, train_items, device
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="config_test.toml")
+    parser.add_argument("--config", type=str, default="config.toml")
     args = parser.parse_args()
     
     cfg = load_config(args.config)
