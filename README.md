@@ -1,87 +1,38 @@
-```md
-# DAM_Classifier — Draw-A-Man (DAM) Checklist Multi-Label Classifier
+````markdown
+# DAM_Classifier (Draw-a-Man Checklist Multi-Label Classifier)
 
-This repository trains an image model to automatically score children’s Draw-A-Man (DAM) drawings against a **48-item checklist** (multi-label classification: each checklist item is a binary label).
-
-The 48 target features correspond to the “Appendix 2 – Checklist for Draw-a-Man test” included in this repo (see `Appendix 2 DAM Checklist .docx`).
-
----
+Train a deep learning model to score children’s “Draw-a-Man” drawings against a **48-item DAM checklist** (multi-label classification: each drawing can have multiple checklist items present).
 
 ## What this repo does
-
-- Trains a **multi-label** image classifier (default: 48 labels) using a `timm` backbone.
-- Supports **standard train/val split** (folders) and optional **k-fold cross-validation**.
-- Logs **Micro F1**, **Macro F1**, and **element-wise accuracy**, and saves a “best” checkpoint.
-- Handles **class imbalance** via optional `pos_weight` calculation and clamping.
-- Provides configurable augmentations and image preprocessing (including optional crop-to-ink).
-
----
-
-## Checklist labels (48)
-
-Each drawing is scored for the presence/quality of the 48 DAM features (gross detail, attachments, head detail, joints, fine head detail, clothing, hand detail, proportion, motor coordination, etc.).  
-See: `Appendix 2 DAM Checklist .docx`.
+- **Multi-label image classification** with a configurable `timm` backbone (default: ConvNeXtV2 Tiny).
+- Supports **BCEWithLogitsLoss** (optionally class-weighted) or **Asymmetric Loss (ASL)**.
+- Training supports either:
+  - **Fixed split** using `img_dataset/train` and `img_dataset/val`, or
+  - **K-fold cross-validation** (CV) by shuffling and splitting all images from both folders.
+- Logs training history and saves a “best model” checkpoint with metadata.
 
 ---
 
-## Repository layout (expected)
-
-Typical layout:
-```
-
-.
-├── config.toml
-├── train.py
-├── data.py
-├── model.py
-├── loss.py
-├── engine.py
-├── utils.py
-├── labels/
-│   └── Score_j.xlsx
-└── img_dataset/
-├── train/
-│   ├── ... images ...
-└── val/
-├── ... images ...
-
-````
+## Repository structure
+- `train.py` — main entrypoint for training (fixed split or CV).
+- `data.py` — Excel label loading, image discovery, transforms, dataloaders.
+- `model.py` — backbone creation via `timm`, optional backbone weight init (“pose pretrain”).
+- `loss.py` — BCE / weighted BCE / ASL.
+- `engine.py` — training loop, metrics, checkpointing, JSON history.
+- `config.toml` — configuration (data/model/train/CV).
 
 ---
 
-## Data format
+## Setup
 
-### 1) Images
-- Place images under:
-  - `img_dataset/train/`
-  - `img_dataset/val/`
-- Supported extensions: `.jpg .jpeg .png .bmp .webp`
-- **Important:** Each image must contain a **3-digit ID** somewhere in its filename (e.g., `drawing_023.png`). The loader extracts the first `\d{3}` it finds and uses it as the key.
+### 1) Install dependencies
+Recommended: Python 3.10+.
 
-### 2) Labels (Excel)
-- Labels are read from an Excel file (default: `labels/Score_j.xlsx`).
-- The loader searches for columns whose header contains `"image"` (case-insensitive).
-- For each such column:
-  - It extracts the same **3-digit ID** from the column name.
-  - It reads the **first 48 rows** (one per checklist criterion) as the label vector.
-  - NaNs are treated as `0.0`.
-
-Result: each drawing ID maps to a 48-dimensional multi-hot label vector.
-
----
-
-## Installation
-
-Create an environment and install dependencies.
-
-Example (pip):
 ```bash
-pip install torch torchvision timm pandas openpyxl pillow numpy
+pip install torch torchvision timm pillow pandas openpyxl numpy
 ````
 
-Notes:
-
-* Python needs `tomllib` (Py3.11+) or `tomli` (older Python). If you are on Python < 3.11:
+If you are on Python < 3.11:
 
 ```bash
 pip install tomli
@@ -89,27 +40,80 @@ pip install tomli
 
 ---
 
-## Quick start (single run)
+## Data and labels
 
-1. Edit `config.toml` if needed (paths, backbone, batch size, etc.).
-2. Run training:
+### Image folder layout
 
-```bash
-python train.py --config config.toml
+Place images under:
+
+```
+img_dataset/
+  train/
+    ... your images ...
+  val/
+    ... your images ...
 ```
 
-Training will:
+Supported extensions: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`.
 
-* Build the model from `cfg.model` (default: `convnextv2_tiny`).
-* Load data from `cfg.data`.
-* Train for `cfg.train.epochs`.
-* Save logs/checkpoints under `cfg.system.runs_dir / cfg.system.run_name` (auto-uniqued).
+**Important:** Your image filename must include a **3-digit ID** (e.g., `001`, `128`, `905`). The training code extracts the first `\d{3}` occurrence and uses it to match labels.
+
+### Label file format (Excel)
+
+By default, labels are read from:
+
+```
+labels/Score_j.xlsx
+```
+
+Expected format:
+
+* The code looks for **columns whose header includes “image”** (case-insensitive).
+* For each such column, it extracts the **3-digit ID** from the column name.
+* It then reads the **first 48 rows** from that column as the 48 checklist targets:
+
+  * Values should be numeric (0/1 recommended).
+  * Non-numeric will be coerced to NaN and then converted to 0.
+
+In short: one Excel column per image, with 48 rows representing the 48 DAM checklist items.
 
 ---
 
-## Cross-validation mode (optional)
+## Configure your run (`config.toml`)
 
-Enable CV in `config.toml`:
+Key settings you will commonly edit:
+
+### System
+
+* `system.seed`: reproducibility seed.
+* `system.device`: `"cuda"` or `"cpu"` (auto-falls back to CPU if CUDA not available).
+* `system.run_name`: name for the run folder under `runs/`.
+
+### Data
+
+* `data.csv_path`: path to label Excel (e.g., `labels/Score_j.xlsx`).
+* `data.img_root_dir`: dataset root (e.g., `img_dataset`).
+* `data.img_size`: resize/crop target size.
+* `data.num_workers`: dataloader workers.
+* Optional pre-processing: `data.use_crop_to_ink` (see note below).
+
+### Model
+
+* `model.backbone`: any `timm` image model name (e.g., `convnextv2_tiny`).
+* `model.num_classes`: should be **48** for the DAM checklist.
+* Optional: `model.use_pose_pretrain` + `model.pose_pretrain_backbone` to load backbone weights (non-strict load).
+
+### Training
+
+* `train.epochs`, `train.batch_size`, `train.learning_rate`, `train.weight_decay`.
+* `train.threshold`: probability threshold used for metrics.
+* `train.loss`: `"bce"` or `"asl"`.
+* `train.use_weighted_loss`: if `true`, auto-computes `pos_weight` from the training set (clamped by `train.pos_weight_clamp`).
+* `train.metric_for_best`: choose best model by `val_f1_micro` (default) or `val_f1_macro`.
+
+### Cross-validation (optional)
+
+Set:
 
 ```toml
 [cv]
@@ -118,16 +122,47 @@ num_runs = 5
 seed = 999
 ```
 
-Then run the same command:
+This will create a `..._CV/` run folder with `fold_1/`, `fold_2/`, etc.
+
+---
+
+## Train
+
+### Fixed train/val folders
 
 ```bash
 python train.py --config config.toml
 ```
 
-Outputs will be written under a directory like:
+### Cross-validation
+
+Enable `[cv].enabled = true` in `config.toml`, then:
+
+```bash
+python train.py --config config.toml
+```
+
+---
+
+## Outputs
+
+Runs are saved under:
+
+```
+runs/<run_name>/
+```
+
+Key files:
+
+* `best.pth` — best checkpoint (based on `train.metric_for_best`).
+* `history.json` — epoch-by-epoch training/validation metrics.
+* `best_model_metadata.json` — human-readable summary of the best checkpoint.
+
+In CV mode:
 
 ```
 runs/<run_name>_CV/
+  cv_config.json
   fold_1/
   fold_2/
   ...
@@ -135,107 +170,63 @@ runs/<run_name>_CV/
 
 ---
 
-## Configuration reference (high-impact settings)
-
-Open `config.toml` and adjust:
-
-### System
-
-* `system.seed`: global seed for reproducibility
-* `system.device`: `"cuda"` or `"cpu"`
-* `system.run_name`: run folder name
-* `system.runs_dir`: root runs directory
-
-### Data
-
-* `data.csv_path`: path to Excel labels
-* `data.img_root_dir`: image root containing `train/` and `val/`
-* `data.img_size`: input size (train uses RandomResizedCrop; val uses Resize)
-* `data.num_workers`: DataLoader workers
-
-### Model
-
-* `model.backbone`: any `timm` backbone string
-* `model.pretrained`: use ImageNet pretrained weights
-* `model.num_classes`: number of checklist labels (default 48)
-* `model.use_pose_pretrain`: optionally load backbone weights from a checkpoint path
-
-### Train
-
-* `train.epochs`, `train.batch_size`, `train.learning_rate`, `train.weight_decay`
-* `train.loss`: `"bce"` or `"asl"`
-* `train.threshold`: sigmoid threshold for metrics
-* `train.metric_for_best`: `"val_f1_micro"` (default) or `"val_f1_macro"`
-* `train.use_weighted_loss`: auto-compute `pos_weight` from training set for BCE
-* `train.pos_weight_clamp`: cap for rare-label weights
-
----
-
-## Outputs
-
-For each run directory (e.g., `runs/convnextv2_tiny_ms1/`), you should see:
-
-* `best.pth`
-  Best checkpoint (by selected metric). Includes model state, best metric value, epoch metrics, LR, threshold, and full config.
-
-* `history.json`
-  Per-epoch log including train loss, val loss, Micro F1, Macro F1, and accuracy.
-
-* `best_model_metadata.json`
-  Human-readable summary of best epoch and where it was saved.
-
----
-
 ## Metrics
 
 Validation computes:
 
-* **Micro F1** (global TP/FP/FN aggregated across all labels)
-* **Macro F1** (mean per-label F1)
-* **Element-wise accuracy** (mean of correct label predictions across all labels and samples)
+* **Micro F1** (global TP/FP/FN across all labels)
+* **Macro F1** (mean over labels)
+* **Element-wise accuracy** (mean over all label decisions)
 
-All metrics use `sigmoid(logits) >= threshold`.
+All metrics use:
 
----
-
-## Notes on modeling choices (practical tips)
-
-* **Class imbalance is expected** in checklist-style labels:
-
-  * Start with `train.use_weighted_loss = true` (BCE) and tune `pos_weight_clamp`.
-  * Consider switching to `train.loss = "asl"` if rare labels are consistently missed.
-
-* **Threshold tuning matters**:
-
-  * `train.threshold = 0.5` is a baseline; Macro F1 may improve with per-label thresholds or a tuned global threshold.
-
-* **Augmentations**:
-
-  * Training uses RandomResizedCrop, ColorJitter, and RandomAffine by default.
-  * Validation uses deterministic Resize.
-  * All images are converted to grayscale (3 channels) and normalized with ImageNet stats.
+* `sigmoid(logits)` to obtain probabilities
+* `train.threshold` to convert probabilities into 0/1 predictions
 
 ---
 
-## Troubleshooting
+## Notes / common pitfalls
 
-* **No data found / 0 samples**
+### 1) Crop-to-ink configuration key
 
-  * Confirm your images have a 3-digit ID in the filename.
-  * Confirm the Excel column headers contain “image” and also include the same 3-digit ID.
-  * Confirm `img_dataset/train` and `img_dataset/val` exist under `data.img_root_dir`.
+The crop-to-ink transform is controlled by:
 
-* **CUDA not used**
+```toml
+[data]
+use_crop_to_ink = true
+```
 
-  * If CUDA is unavailable, the code will fall back to CPU automatically.
+(If your `config.toml` currently has `train.use_crop_to_ink`, that key will not affect preprocessing unless you move/duplicate it under `[data]`.)
+
+### 2) ID matching must be consistent
+
+If the image filename contains `123` but the Excel column header does not include the same `123` (and the word “image”), the sample will be dropped.
+
+### 3) Class imbalance
+
+For sparse checklist items, enable:
+
+```toml
+[train]
+use_weighted_loss = true
+pos_weight_clamp = 9.0
+```
+
+This computes per-label positive weights from the training split and clamps extremes.
 
 ---
 
-## Acknowledgements / Reference
+## Checklist definition
 
-Checklist adapted from University of Washington (Goodenough Draw-A-Person / Draw-A-Man scoring reference). See `Appendix 2 DAM Checklist .docx`.
+This project assumes **48 checklist targets** aligned to the DAM checklist you are using. Ensure the row order in the Excel file matches your checklist order exactly (row 1 ↔ item 1, …, row 48 ↔ item 48).
+
+---
+
+## License / attribution
+
+If you redistribute the checklist or derived scoring rules, ensure you comply with the original checklist’s terms and provide appropriate attribution in your academic/clinical context.
 
 ```
 
-Sources used to derive the README’s behavior/claims: model construction and optional pose-weight loading :contentReference[oaicite:0]{index=0}, utilities (ID extraction, run directory handling, atomic JSON logging) :contentReference[oaicite:1]{index=1}, default configuration keys/values :contentReference[oaicite:2]{index=2}, training loop + metrics + artifacts saved :contentReference[oaicite:3]{index=3}, dataset/label loading and transforms :contentReference[oaicite:4]{index=4}, CLI entrypoint and CV logic :contentReference[oaicite:5]{index=5}, loss options (BCE / ASL and pos_weight) :contentReference[oaicite:6]{index=6}, and the 48-item DAM checklist definition :contentReference[oaicite:7]{index=7}.
+Implementation references (from your repo files): model construction and optional backbone init :contentReference[oaicite:0]{index=0}, utilities (seeding, ID extraction, run folder handling) :contentReference[oaicite:1]{index=1}, default configuration example :contentReference[oaicite:2]{index=2}, training loop/metrics/checkpoint outputs :contentReference[oaicite:3]{index=3}, dataset + Excel label parsing + transforms :contentReference[oaicite:4]{index=4}, training entrypoint + CV behavior :contentReference[oaicite:5]{index=5}, loss functions and auto pos-weight computation :contentReference[oaicite:6]{index=6}, and the 48-item DAM checklist definition :contentReference[oaicite:7]{index=7}.
 ```
