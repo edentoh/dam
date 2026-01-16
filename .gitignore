@@ -1,0 +1,46 @@
+# --- Python / caches ---
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# --- Virtual environments ---
+dam_venv/
+.venv/
+venv/
+
+# --- Secrets ---
+.env
+
+# --- Datasets / images (your folders) ---
+img_dataset/
+image_cropped/
+# If "amateur_drawings" is a dataset folder, ignore it too:
+amateur_drawings/
+labels/
+
+# Optional: ignore common image formats anywhere
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+*.webp
+
+# --- Training outputs / experiments ---
+runs/
+results/
+pose_pretrain.py
+amateur_drawings_annotations.json
+app.py
+web/
+
+# Optional: model artifacts (if you generate them)
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# --- Local outputs / spreadsheets ---
+*.xlsx
+*.xls
