@@ -39,7 +39,7 @@ class AsymmetricLoss(nn.Module):
                 torch.set_grad_enabled(True)
             loss *= one_sided_w
 
-        return -loss.sum()
+        return -loss.mean()
 
 class LossFactory:
     @staticmethod

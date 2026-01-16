@@ -5,7 +5,6 @@ try:
 except ImportError:
     import tomli as toml
 from pathlib import Path
-from datetime import datetime
 
 from utils import seed_everything, ensure_unique_run_dir, atomic_write_json
 from data import DataManager
@@ -75,9 +74,9 @@ def main():
     dm = DataManager(cfg)
     
     # --- BRANCH: CV vs Standard ---
-    if cfg.get('cv', {}).get('enabled', False):
+    cv_cfg = cfg.get('train', {}).get('cv', cfg.get('cv', {}))
+    if cv_cfg.get('enabled', False):
         # CROSS VALIDATION MODE
-        cv_cfg = cfg['cv']
         num_folds = int(cv_cfg.get('num_runs', 5))
         
         # Use specific CV seed if provided, else fallback to system seed

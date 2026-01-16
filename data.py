@@ -51,11 +51,37 @@ class DAMDataset(Dataset):
 
 
 class DataManager:
-    def __init__(self, cfg):
+    """Loads labels + builds train/val dataloaders.
+
+    Uses ONLY the training config section:
+      - labels_path, img_root_dir, transforms, num_workers from [train.data]
+      - batch_size from [train]
+
+    Backwards compatible with the older config layout that used [data].
+    """
+
+    def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.label_map = self._load_labels(cfg['data']['csv_path'])
-        self.root_dir = Path(cfg['data']['img_root_dir'])
-        
+        self.train_cfg = cfg.get("train", {})
+
+        # Prefer the new layout: [train.data]
+        self.data_cfg = self.train_cfg.get("data", {})
+
+        # Back-compat: older layout used [data]
+        if not self.data_cfg and "data" in cfg:
+            self.data_cfg = cfg["data"]
+
+        labels_path = self.data_cfg.get("labels_path", self.data_cfg.get("csv_path"))
+        if labels_path is None:
+            raise KeyError("Missing labels_path (expected [train.data].labels_path)")
+
+        self.label_map = self._load_labels(labels_path)
+
+        img_root = self.data_cfg.get("img_root_dir")
+        if img_root is None:
+            raise KeyError("Missing img_root_dir (expected [train.data].img_root_dir)")
+        self.root_dir = Path(img_root)
+
     def _load_labels(self, path) -> dict:
         df = pd.read_excel(path, engine="openpyxl")
         image_cols = [c for c in df.columns if isinstance(c, str) and "image" in c.lower()]
@@ -63,22 +89,16 @@ class DataManager:
         label_map = {}
         for col in image_cols:
             img_id = extract_id(col)
-            if not img_id: continue
+            if not img_id:
+                continue
             y = pd.to_numeric(df_criteria[col], errors="coerce").to_numpy(dtype=np.float32)
             y = np.nan_to_num(y, nan=0.0)
             if y.shape[0] == 48:
                 label_map[img_id] = y
         return label_map
 
-    # data.py (inside class DataManager)
-
     def _find_images(self, folder: Path) -> list:
-        """
-        Match train_dam_best.py ordering:
-        - iterate folder.rglob("*") directly (no sorting)
-        - keep only files with allowed extensions
-        - keep only items whose extracted ID exists in label_map
-        """
+        """Collect labeled images from folder (no sorting, matches your previous ordering)."""
         items = []
         if not folder.exists():
             return items
@@ -96,69 +116,83 @@ class DataManager:
         return items
 
     def _get_transforms(self, is_train: bool):
-        cfg_d = self.cfg['data']
+        cfg_d = self.data_cfg
         ops = []
-        if cfg_d.get('use_crop_to_ink', False):
-            ops.append(CropToInk(cfg_d.get('crop_threshold', 245), cfg_d.get('crop_pad', 12)))
-        
+
+        if cfg_d.get("use_crop_to_ink", False):
+            ops.append(
+                CropToInk(
+                    cfg_d.get("crop_threshold", 245),
+                    cfg_d.get("crop_pad", 12),
+                    cfg_d.get("crop_min_size", 50),
+                )
+            )
+
         ops.append(transforms.Grayscale(num_output_channels=3))
-        size = cfg_d.get('img_size', 384)
+        size = int(cfg_d.get("img_size", 384))
 
         if is_train:
-            ops.extend([
-                transforms.RandomResizedCrop(size, scale=(0.65, 1.0), ratio=(0.85, 1.15)),
-                transforms.RandomApply([transforms.ColorJitter(0.35, 0.35)], p=0.9),
-                transforms.RandomAffine(12, (0.06, 0.06), (0.9, 1.1), 6),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            ])
+            ops.extend(
+                [
+                    transforms.RandomResizedCrop(size, scale=(0.65, 1.0), ratio=(0.85, 1.15)),
+                    transforms.RandomApply([transforms.ColorJitter(0.35, 0.35)], p=0.9),
+                    transforms.RandomAffine(12, (0.06, 0.06), (0.9, 1.1), 6),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            )
         else:
-            ops.extend([
-                transforms.Resize((size, size)),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            ])
+            ops.extend(
+                [
+                    transforms.Resize((size, size)),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            )
+
         return transforms.Compose(ops)
 
     def _create_dataloaders(self, train_items, val_items):
-        bs = self.cfg['train']['batch_size']
-        nw = self.cfg['data']['num_workers']
-        
+        bs = int(self.train_cfg.get("batch_size", 16))
+        nw = int(self.data_cfg.get("num_workers", 0))
+
         train_loader = DataLoader(
             DAMDataset(train_items, self._get_transforms(is_train=True)),
-            batch_size=bs, shuffle=True, num_workers=nw, pin_memory=True
+            batch_size=bs,
+            shuffle=True,
+            num_workers=nw,
+            pin_memory=True,
         )
         val_loader = DataLoader(
             DAMDataset(val_items, self._get_transforms(is_train=False)),
-            batch_size=bs, shuffle=False, num_workers=0, pin_memory=True
+            batch_size=bs,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True,
         )
         return train_loader, val_loader
 
     def get_fixed_loaders(self):
-        """Standard mode: uses 'train' and 'val' folders."""
+        """Standard mode: uses img_root_dir/train and img_root_dir/val."""
         train_items = self._find_images(self.root_dir / "train")
         val_items = self._find_images(self.root_dir / "val")
         print(f"[Data] Fixed Mode: {len(train_items)} Train, {len(val_items)} Val")
         return self._create_dataloaders(train_items, val_items), train_items
 
     def get_cv_loaders(self, fold_idx, num_folds, seed=42):
-        """CV Mode: merges folders, shuffles, and splits by index."""
-        # 1. Gather all data
-        all_items = self._find_images(self.root_dir / "train") + \
-                    self._find_images(self.root_dir / "val")
-        
-        # 2. Shuffle securely
+        """CV mode: merges train+val, shuffles, splits by index."""
+        all_items = self._find_images(self.root_dir / "train") + self._find_images(self.root_dir / "val")
+
         rng = np.random.default_rng(seed)
         indices = np.arange(len(all_items))
         rng.shuffle(indices)
-        
-        # 3. Split indices
+
         folds = np.array_split(indices, num_folds)
         val_idx = folds[fold_idx]
         train_idx = np.concatenate([folds[i] for i in range(num_folds) if i != fold_idx])
-        
+
         train_items = [all_items[i] for i in train_idx]
         val_items = [all_items[i] for i in val_idx]
-        
+
         print(f"[Data] CV Fold {fold_idx+1}/{num_folds}: {len(train_items)} Train, {len(val_items)} Val")
         return self._create_dataloaders(train_items, val_items), train_items

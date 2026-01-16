@@ -42,7 +42,7 @@ class Trainer:
         self.cfg = cfg
         self.device = device
         self.run_dir = run_dir
-        self.threshold = cfg['train'].get('threshold', 0.5)
+        self.threshold = cfg['train'].get('metric_threshold', cfg['train'].get('threshold', 0.5))
         
         # History tracking
         self.history = {
@@ -137,7 +137,7 @@ class Trainer:
                     "best_metric_val": float(best_metric),
                     "epoch_metrics": row,                 # train_loss, val_loss, val_f1_micro, val_f1_macro, val_acc
                     "learning_rate": float(curr_lr),
-                    "threshold": float(self.threshold),
+                    "metric_threshold": float(self.threshold),
                     "config": self.cfg,
                 }
                 torch.save(ckpt, best_path)
@@ -152,7 +152,7 @@ class Trainer:
                     "checkpoint_path": str(best_path),
                     "history_path": str(self.run_dir / "history.json"),
                     "learning_rate": float(curr_lr),
-                    "threshold": float(self.threshold),
+                    "metric_threshold": float(self.threshold),
                     "epoch_metrics": row,
                     "config": self.cfg,
                 }

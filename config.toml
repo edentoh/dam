@@ -5,12 +5,6 @@ device = "cuda"
 run_name = "convnextv2_tiny_ms1"
 runs_dir = "runs"
 
-[data]
-csv_path = "labels/Score_j.xlsx"
-img_root_dir = "img_dataset"
-img_size = 420
-num_workers = 0
-
 [model]
 pretrained = true
 backbone = "convnextv2_tiny"
@@ -18,13 +12,17 @@ num_classes = 48
 use_pose_pretrain = false
 pose_pretrain_backbone = "runs/pose_pretrain_convnext_tiny/backbone_pretrain.pth"
 
+# =========================
+# TRAINING CONFIG (train.py)
+# =========================
 [train]
 epochs = 65
 batch_size = 16
 learning_rate = 0.00005
 weight_decay = 0.3
-threshold = 0.5
-use_crop_to_ink = false
+
+# Used ONLY for training-time metrics (NOT for inference/app)
+metric_threshold = 0.5
 
 # switch loss: 'bce' or 'asl'
 loss = "bce"
@@ -32,14 +30,67 @@ loss = "bce"
 lr_milestones = [15, 25, 35, 45, 55]
 lr_gamma = 0.5
 use_weighted_loss = true
-pos_weight_clamp = 9.0
+pos_weight_clamp = 10.0
+
+# Which validation metric decides "best.pth": 'val_f1_micro' or 'val_f1_macro'
+metric_for_best = "val_f1_micro"
 
 # ASL settings
 asl_gamma_neg = 3.0
 asl_gamma_pos = 0.0
 asl_clip = 0.05
 
-[cv]
+[train.data]
+# Labels spreadsheet (first 48 rows are criteria; columns like "Image 001" ...)
+labels_path = "labels/Score_j.xlsx"
+
+# Folder must contain subfolders: img_root_dir/train and img_root_dir/val
+img_root_dir = "img_dataset"
+
+# Model input size used in training transforms
+img_size = 420
+num_workers = 0
+
+# Preprocess (keep train/predict consistent unless you intentionally change it)
+use_crop_to_ink = false
+crop_threshold = 245
+crop_pad = 12
+crop_min_size = 50
+
+[train.cv]
 enabled = false
-num_runs = 5         # Number of Folds (k)
-seed = 999           # Specific seed for CV shuffling (overrides system seed)
+num_runs = 5
+seed = 999
+
+# =============================================
+# PREDICT + APP CONFIG (predict_to_excel.py, app.py)
+# =============================================
+[predict]
+model_path = "runs/convnextv2_tiny_ms1__4/best.pth"
+input_image_dir = "img_dataset/val"
+output_excel = "DAM_Predictions_test.xlsx"
+
+# Inference batch size for scripts (not used by the API, which is single-image)
+batch_size = 16
+
+# Vector thresholds (preferred). If relative, resolved next to model_path.
+threshold_vector_path = "threshold_vector.json"
+
+# Fallback scalar threshold used only if vector is missing/invalid
+threshold_scalar_fallback = 0.5
+
+# If true, prediction/app will error if vector JSON is missing/invalid.
+require_threshold_vector = false
+
+[predict.data]
+# Preprocess for inference (should mirror [train.data] unless you purposely change it)
+img_size = 420
+num_workers = 0
+use_crop_to_ink = true
+crop_threshold = 245
+crop_pad = 12
+crop_min_size = 50
+
+[predict.labels]
+# Optional. Used for script-side evaluation / threshold fitting.
+labels_path = "labels/Score_j.xlsx"
