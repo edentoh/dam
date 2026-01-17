@@ -35,6 +35,7 @@ amateur_drawings_annotations.json
 app.py
 web/
 test_crop.ipynb
+check_split.py
 
 # Optional: model artifacts (if you generate them)
 *.pt
