@@ -16,9 +16,9 @@ pose_pretrain_backbone = "runs/pose_pretrain_convnext_tiny/backbone_pretrain.pth
 # TRAINING CONFIG (train.py)
 # =========================
 [train]
-epochs = 65
+epochs = 100
 batch_size = 16
-learning_rate = 0.00005
+learning_rate = 0.0001
 weight_decay = 0.3
 # Hybrid schedule: freeze pretrained backbone for first N epochs, then unfreeze.
 # Set to 0 to disable.
@@ -30,7 +30,7 @@ use_weight_decay_filtering = false
 # Discriminative LR (recommended for pretrained backbones):
 # backbone_lr = learning_rate * backbone_lr_mult
 # head_lr     = learning_rate * head_lr_mult
-use_discriminative_lr = false
+use_discriminative_lr = true
 backbone_lr_mult = 0.1
 head_lr_mult = 1.0
 
@@ -40,7 +40,7 @@ metric_threshold = 0.5
 # switch loss: 'bce' or 'asl'
 loss = "bce"
 
-lr_milestones = [15, 25, 35, 45, 55]
+lr_milestones = [25, 45, 55, 75, 95]
 lr_gamma = 0.5
 use_weighted_loss = true
 pos_weight_clamp = 10.0
@@ -79,7 +79,7 @@ seed = 333
 # PREDICT + APP CONFIG (predict_to_excel.py, app.py)
 # =============================================
 [predict]
-model_path = "runs/convnextv2_tiny_ms1__9/best.pth"
+model_path = "runs/convnextv2_tiny_ms1__10/best.pth"
 input_image_dir = "img_dataset/val"
 output_excel = "DAM_Predictions_test.xlsx"
 

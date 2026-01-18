@@ -45,18 +45,18 @@ class LossFactory:
     @staticmethod
     def get(cfg: dict, train_items: list = None, device: str = 'cpu'):
         loss_name = cfg['train'].get('loss', 'bce').lower()
-        
+
         if loss_name == 'asl':
             return AsymmetricLoss(
                 gamma_neg=float(cfg['train'].get('asl_gamma_neg', 4.0)),
                 gamma_pos=float(cfg['train'].get('asl_gamma_pos', 1.0)),
                 clip=float(cfg['train'].get('asl_clip', 0.05))
             )
-            
+
         elif loss_name == 'bce':
             # 1. Check for Manual Weights (List or Scalar)
             manual_weight = cfg['train'].get('pos_weight', None)
-            
+
             if manual_weight is not None:
                 print(f"[Loss] Using manual pos_weight from config: {manual_weight}")
                 # Handle list vs scalar
@@ -73,10 +73,10 @@ class LossFactory:
                 print(f"[Loss] Calculating pos_weights from data (clamp={clamp_val})...")
                 pos_weight = LossFactory._calculate_pos_weights(train_items, clamp_val).to(device)
                 return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-            
+
             # 3. Default (No weights)
             return nn.BCEWithLogitsLoss()
-        
+
         else:
             raise ValueError(f"Unknown loss function: {loss_name}")
 
@@ -88,7 +88,7 @@ class LossFactory:
         w = np.ones_like(pos, dtype=np.float32)
         mask = pos > 0
         w[mask] = (neg[mask] / pos[mask]).astype(np.float32)
-        
+
         # Clamp to avoid exploding gradients on very rare classes
         w = np.clip(w, 1.0, max_weight)
         return torch.tensor(w, dtype=torch.float32)

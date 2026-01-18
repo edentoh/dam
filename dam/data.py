@@ -1,37 +1,14 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import torch
 from pathlib import Path
 from PIL import Image
+
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from utils import extract_id
 
-# ... (Keep CropToInk and DAMDataset classes exactly as they were) ...
-
-class CropToInk:
-    """Pre-processing: Crops image to ink bounding box."""
-    def __init__(self, threshold: int = 245, pad: int = 12, min_size: int = 50):
-        self.threshold = threshold
-        self.pad = pad
-        self.min_size = min_size
-
-    def __call__(self, img: Image.Image) -> Image.Image:
-        g = img.convert("L")
-        arr = np.array(g)
-        mask = arr < self.threshold
-        if int(mask.sum()) < self.min_size:
-            return img
-
-        ys, xs = np.where(mask)
-        y0, y1 = int(ys.min()), int(ys.max())
-        x0, x1 = int(xs.min()), int(xs.max())
-
-        y0 = max(0, y0 - self.pad)
-        x0 = max(0, x0 - self.pad)
-        y1 = min(arr.shape[0] - 1, y1 + self.pad)
-        x1 = min(arr.shape[1] - 1, x1 + self.pad)
-        return img.crop((x0, y0, x1 + 1, y1 + 1))
+from .transforms import CropToInk
+from .utils import extract_id
 
 
 class DAMDataset(Dataset):

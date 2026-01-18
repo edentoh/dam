@@ -1,117 +1,25 @@
 import os
-import re
-import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from PIL import Image
 
-try:
-    import tomllib as toml
-except ImportError:
-    import tomli as toml  # pip install tomli
-
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torchvision import transforms
 import timm
 
-
-def extract_id(s: str) -> str | None:
-    m = re.search(r"(\d{3})", str(s))
-    return m.group(1) if m else None
-
-
-def load_config(path: str = "config.toml") -> dict:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Missing config: {path}")
-    with open(path, "rb") as f:
-        return toml.load(f)
-
-
-class CropToInk:
-    def __init__(self, threshold: int = 245, pad: int = 10, min_size: int = 50):
-        self.threshold = int(threshold)
-        self.pad = int(pad)
-        self.min_size = int(min_size)
-
-    def __call__(self, img: Image.Image) -> Image.Image:
-        g = img.convert("L")
-        arr = np.array(g)
-        mask = arr < self.threshold
-        if int(mask.sum()) < self.min_size:
-            return img
-        ys, xs = np.where(mask)
-        y0, y1 = int(ys.min()), int(ys.max())
-        x0, x1 = int(xs.min()), int(xs.max())
-        y0 = max(0, y0 - self.pad)
-        x0 = max(0, x0 - self.pad)
-        y1 = min(arr.shape[0] - 1, y1 + self.pad)
-        x1 = min(arr.shape[1] - 1, x1 + self.pad)
-        return img.crop((x0, y0, x1 + 1, y1 + 1))
-
-
-def load_labels(label_path: Path) -> dict[str, np.ndarray]:
-    if not label_path.exists():
-        return {}
-
-    if label_path.suffix.lower() in [".xlsx", ".xls"]:
-        df = pd.read_excel(label_path, engine="openpyxl")
-    else:
-        df = pd.read_csv(label_path)
-
-    image_cols = [c for c in df.columns if isinstance(c, str) and "image" in c.lower()]
-    if not image_cols:
-        return {}
-
-    df_criteria = df.iloc[:48].copy()
-
-    label_map = {}
-    for col in image_cols:
-        img_id = extract_id(col)
-        if not img_id:
-            continue
-        y = pd.to_numeric(df_criteria[col], errors="coerce").to_numpy(dtype=np.float32)
-        y = np.nan_to_num(y, nan=0.0)
-        if y.shape[0] == 48:
-            label_map[img_id] = y
-    return label_map
-
-
-def list_images(folder: Path) -> dict[str, Path]:
-    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-    out = {}
-    if not folder.exists():
-        raise FileNotFoundError(f"Input image dir not found: {folder}")
-    for p in folder.rglob("*"):
-        if p.is_file() and p.suffix.lower() in exts:
-            img_id = extract_id(p.name)
-            if img_id:
-                out[img_id] = p
-    return out
-
-
-class InferDataset(Dataset):
-    def __init__(self, items: list[tuple[str, Path]], tfm):
-        self.items = items
-        self.tfm = tfm
-
-    def __len__(self):
-        return len(self.items)
-
-    def __getitem__(self, idx):
-        img_id, path = self.items[idx]
-        img = Image.open(path).convert("RGB")
-        img = self.tfm(img)
-        return img_id, img
+from dam.config import load_config
+from dam.inference import InferDataset, list_images, load_labels_lenient, safe_num_workers
+from dam.predicting import get_labels_path_for_predict, get_predict_data_cfg
+from dam.thresholds import load_threshold_vector, resolve_under_model_dir
+from dam.transforms import CropToInk
 
 
 @torch.no_grad()
 def elementwise_accuracy_vector(y_true: np.ndarray, y_prob: np.ndarray, thr_vec: np.ndarray) -> float:
-    """
-    y_true: (N,48) {0,1}
+    """y_true: (N,48) {0,1}
     y_prob: (N,48) in [0,1]
     thr_vec: (48,)
     """
@@ -131,81 +39,6 @@ def micro_f1_vector(y_true: np.ndarray, y_prob: np.ndarray, thr_vec: np.ndarray)
     return (2 * tp / denom) if denom > 0 else 0.0
 
 
-def load_threshold_vector(path: Path, num_classes: int, fallback_thr: float) -> tuple[np.ndarray, dict]:
-    """
-    Supports:
-      - JSON object containing {"thresholds": [...]} (preferred)
-      - raw JSON list [...]
-    Returns (thr_vec, info_dict)
-    """
-    info = {
-        "threshold_mode": "scalar_fallback",
-        "threshold_vector_path": str(path),
-    }
-
-    if not path.exists():
-        thr_vec = np.full((num_classes,), float(fallback_thr), dtype=np.float32)
-        info["threshold_mode"] = "scalar_fallback_missing_json"
-        return thr_vec, info
-
-    with open(path, "r", encoding="utf-8") as f:
-        obj = json.load(f)
-
-    if isinstance(obj, list):
-        arr = obj
-    elif isinstance(obj, dict) and "thresholds" in obj:
-        arr = obj["thresholds"]
-        info["threshold_mode"] = "vector_from_json.thresholds"
-    else:
-        raise ValueError(f"Unsupported threshold JSON format in {path}. Expect list or dict with 'thresholds'.")
-
-    if not isinstance(arr, list) or len(arr) != num_classes:
-        raise ValueError(f"Threshold vector must be a list of length {num_classes}. Got {type(arr)} len={len(arr) if isinstance(arr, list) else 'NA'}.")
-
-    thr_vec = np.array(arr, dtype=np.float32)
-    thr_vec = np.clip(thr_vec, 0.0, 1.0)
-
-    # If it was a raw list, reflect mode:
-    if info["threshold_mode"] == "scalar_fallback":
-        info["threshold_mode"] = "vector_from_json_list"
-
-    return thr_vec, info
-
-
-
-def _resolve_under_model_dir(model_path: Path, maybe_rel: Path) -> Path:
-    """If maybe_rel is relative, resolve it next to model_path."""
-    return maybe_rel if maybe_rel.is_absolute() else (model_path.parent / maybe_rel)
-
-
-def _get_predict_data_cfg(cfg: dict) -> dict:
-    # New layout: [predict.data]
-    pdcfg = cfg.get("predict", {}).get("data", {})
-    if pdcfg:
-        return pdcfg
-    # Back-compat: older layout used [data]
-    return cfg.get("data", {})
-
-
-def _get_labels_path_for_predict(cfg: dict) -> str | None:
-    # New layout: [predict.labels].labels_path
-    pl = cfg.get("predict", {}).get("labels", {})
-    if isinstance(pl, dict) and pl.get("labels_path"):
-        return pl.get("labels_path")
-
-    # Reasonable fallback: training labels
-    tl = cfg.get("train", {}).get("data", {})
-    if isinstance(tl, dict) and tl.get("labels_path"):
-        return tl.get("labels_path")
-
-    # Back-compat: older layout used [data].csv_path
-    d = cfg.get("data", {})
-    if isinstance(d, dict) and d.get("csv_path"):
-        return d.get("csv_path")
-
-    return None
-
-
 def main():
     cfg = load_config("config.toml")
 
@@ -217,7 +50,7 @@ def main():
     num_classes = int(cfg["model"].get("num_classes", 48))
 
     predict_cfg = cfg.get("predict", {})
-    data_cfg = _get_predict_data_cfg(cfg)
+    data_cfg = get_predict_data_cfg(cfg)
 
     model_path = Path(predict_cfg["model_path"])
     input_dir = Path(predict_cfg["input_image_dir"])
@@ -228,17 +61,19 @@ def main():
 
     # Vector threshold path (if relative, resolve next to model)
     thr_vec_path_cfg = Path(predict_cfg.get("threshold_vector_path", "threshold_vector.json"))
-    thr_vec_path = _resolve_under_model_dir(model_path, thr_vec_path_cfg)
+    thr_vec_path = resolve_under_model_dir(model_path, thr_vec_path_cfg)
 
     thr_vec, thr_info = load_threshold_vector(thr_vec_path, num_classes=num_classes, fallback_thr=thr_scalar)
 
-    if bool(predict_cfg.get("require_threshold_vector", False)) and thr_info["threshold_mode"].startswith("scalar_fallback"):
+    if bool(predict_cfg.get("require_threshold_vector", False)) and thr_info["threshold_mode"].startswith(
+        "scalar_fallback"
+    ):
         raise RuntimeError(
             f"require_threshold_vector=true but vector thresholds not available. Tried: {thr_vec_path.resolve()}"
         )
 
-    labels_path = _get_labels_path_for_predict(cfg)
-    label_map = load_labels(Path(labels_path)) if labels_path else {}
+    labels_path = get_labels_path_for_predict(cfg)
+    label_map = load_labels_lenient(Path(labels_path)) if labels_path else {}
 
     if not model_path.exists():
         raise FileNotFoundError(f"Model not found: {model_path}")
@@ -280,10 +115,7 @@ def main():
     print(f"Predicting {len(items)} images from: {input_dir}")
     print(f"Threshold mode: {thr_info['threshold_mode']} | path={thr_info['threshold_vector_path']}")
 
-    # Windows safety
-    num_workers = int(data_cfg.get("num_workers", 0))
-    if os.name == "nt" and num_workers > 0:
-        num_workers = 0
+    num_workers = safe_num_workers(int(data_cfg.get("num_workers", 0)))
 
     loader = DataLoader(
         InferDataset(items, tfm),

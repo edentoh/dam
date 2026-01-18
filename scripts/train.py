@@ -1,72 +1,17 @@
 import argparse
-import torch
 import json
-try:
-    import tomllib as toml
-except ImportError:
-    import tomli as toml
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from utils import seed_everything, ensure_unique_run_dir, atomic_write_json
-from data import DataManager
-from model import ModelBuilder
-from loss import LossFactory
-from engine import Trainer
+import torch
 
-
-def _get_module_by_path(root, path: str):
-    """Resolves dotted attribute paths (e.g., 'head.fc') against a module."""
-    cur = root
-    for part in str(path).split('.'):
-        if not part:
-            continue
-        cur = getattr(cur, part)
-    return cur
-
-
-def _resolve_classifier_module(model):
-    """Best-effort resolution of a model's classifier/head module.
-
-    Supports timm's `get_classifier()` conventions:
-      - returns an nn.Module
-      - returns a dotted string path to the classifier
-      - returns a list/tuple of modules or paths
-    Returns a list of modules (possibly empty).
-    """
-    if not hasattr(model, "get_classifier"):
-        return []
-
-    cls = model.get_classifier()
-    if cls is None:
-        return []
-
-    modules = []
-    if isinstance(cls, str):
-        try:
-            modules.append(_get_module_by_path(model, cls))
-        except Exception:
-            return []
-    elif isinstance(cls, (list, tuple)):
-        for item in cls:
-            if item is None:
-                continue
-            if isinstance(item, str):
-                try:
-                    modules.append(_get_module_by_path(model, item))
-                except Exception:
-                    continue
-            else:
-                modules.append(item)
-    else:
-        modules.append(cls)
-
-    # Filter to modules that look like nn.Modules
-    out = []
-    for m in modules:
-        if hasattr(m, "parameters"):
-            out.append(m)
-    return out
+from dam.config import load_config
+from dam.data import DataManager
+from dam.engine import Trainer
+from dam.loss import LossFactory
+from dam.model import ModelBuilder
+from dam.modeling_utils import resolve_classifier_modules
+from dam.utils import atomic_write_json, ensure_unique_run_dir, seed_everything
 
 
 def build_optimizer(cfg: dict, model):
@@ -119,7 +64,7 @@ def build_optimizer(cfg: dict, model):
     backbone_mult = float(train_cfg.get("backbone_lr_mult", 0.1))
     head_mult = float(train_cfg.get("head_lr_mult", 1.0))
 
-    head_modules = _resolve_classifier_module(model)
+    head_modules = resolve_classifier_modules(model)
     head_params = []
     for m in head_modules:
         head_params.extend(list(m.parameters()))
@@ -176,11 +121,6 @@ def build_optimizer(cfg: dict, model):
     return opt
 
 
-def load_config(path):
-    with open(path, "rb") as f:
-        return toml.load(f)
-
-
 def load_json(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -195,7 +135,7 @@ def _safe_float(x, default=0.0):
 
 def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: int, cv_seed: int):
     """Builds and saves a CV summary JSON (mean/std across folds) into base_dir."""
-    metric_key = cfg['train'].get('metric_for_best', 'val_f1_micro')
+    metric_key = cfg["train"].get("metric_for_best", "val_f1_micro")
 
     fold_rows = []
     for i, fd in enumerate(fold_dirs, start=1):
@@ -205,18 +145,20 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
         if best_meta_path.exists():
             best_meta = load_json(best_meta_path)
             epoch_metrics = best_meta.get("epoch_metrics", {})
-            fold_rows.append({
-                "fold": i,
-                "fold_dir": str(fd),
-                "best_epoch": int(best_meta.get("best_epoch", epoch_metrics.get("epoch", 0) or 0)),
-                "metric_for_best": str(best_meta.get("metric_for_best", metric_key)),
-                "best_metric_val": _safe_float(best_meta.get("best_metric_val", 0.0)),
-                "val_f1_micro": _safe_float(epoch_metrics.get("val_f1_micro", 0.0)),
-                "val_f1_macro": _safe_float(epoch_metrics.get("val_f1_macro", 0.0)),
-                "val_acc": _safe_float(epoch_metrics.get("val_acc", 0.0)),
-                "val_loss": _safe_float(epoch_metrics.get("val_loss", 0.0)),
-                "train_loss": _safe_float(epoch_metrics.get("train_loss", 0.0)),
-            })
+            fold_rows.append(
+                {
+                    "fold": i,
+                    "fold_dir": str(fd),
+                    "best_epoch": int(best_meta.get("best_epoch", epoch_metrics.get("epoch", 0) or 0)),
+                    "metric_for_best": str(best_meta.get("metric_for_best", metric_key)),
+                    "best_metric_val": _safe_float(best_meta.get("best_metric_val", 0.0)),
+                    "val_f1_micro": _safe_float(epoch_metrics.get("val_f1_micro", 0.0)),
+                    "val_f1_macro": _safe_float(epoch_metrics.get("val_f1_macro", 0.0)),
+                    "val_acc": _safe_float(epoch_metrics.get("val_acc", 0.0)),
+                    "val_loss": _safe_float(epoch_metrics.get("val_loss", 0.0)),
+                    "train_loss": _safe_float(epoch_metrics.get("train_loss", 0.0)),
+                }
+            )
             continue
 
         # Fallback: reconstruct best epoch from history.json
@@ -226,30 +168,38 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
             if epochs:
                 key = metric_key
                 best_row = max(epochs, key=lambda r: _safe_float(r.get(key, 0.0)))
-                fold_rows.append({
-                    "fold": i,
-                    "fold_dir": str(fd),
-                    "best_epoch": int(best_row.get("epoch", 0) or 0),
-                    "metric_for_best": str(metric_key),
-                    "best_metric_val": _safe_float(best_row.get(metric_key, 0.0)),
-                    "val_f1_micro": _safe_float(best_row.get("val_f1_micro", 0.0)),
-                    "val_f1_macro": _safe_float(best_row.get("val_f1_macro", 0.0)),
-                    "val_acc": _safe_float(best_row.get("val_acc", 0.0)),
-                    "val_loss": _safe_float(best_row.get("val_loss", 0.0)),
-                    "train_loss": _safe_float(best_row.get("train_loss", 0.0)),
-                })
+                fold_rows.append(
+                    {
+                        "fold": i,
+                        "fold_dir": str(fd),
+                        "best_epoch": int(best_row.get("epoch", 0) or 0),
+                        "metric_for_best": str(metric_key),
+                        "best_metric_val": _safe_float(best_row.get(metric_key, 0.0)),
+                        "val_f1_micro": _safe_float(best_row.get("val_f1_micro", 0.0)),
+                        "val_f1_macro": _safe_float(best_row.get("val_f1_macro", 0.0)),
+                        "val_acc": _safe_float(best_row.get("val_acc", 0.0)),
+                        "val_loss": _safe_float(best_row.get("val_loss", 0.0)),
+                        "train_loss": _safe_float(best_row.get("train_loss", 0.0)),
+                    }
+                )
                 continue
 
-        fold_rows.append({
-            "fold": i,
-            "fold_dir": str(fd),
-            "error": "Missing best_model_metadata.json and history.json",
-        })
+        fold_rows.append(
+            {
+                "fold": i,
+                "fold_dir": str(fd),
+                "error": "Missing best_model_metadata.json and history.json",
+            }
+        )
 
     import numpy as np
 
     def agg(field: str):
-        vals = [r[field] for r in fold_rows if isinstance(r, dict) and field in r and isinstance(r[field], (int, float))]
+        vals = [
+            r[field]
+            for r in fold_rows
+            if isinstance(r, dict) and field in r and isinstance(r[field], (int, float))
+        ]
         if not vals:
             return {"mean": None, "std": None, "n": 0}
         arr = np.asarray(vals, dtype=float)
@@ -282,9 +232,7 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
 
 
 def train_single_run(cfg, run_dir, train_loader, val_loader, train_items, device, fold_info=None):
-    """
-    Executes one complete training cycle (setup model -> train -> save).
-    """
+    """Executes one complete training cycle (setup model -> train -> save)."""
     model = ModelBuilder.build(cfg, device)
 
     criterion = LossFactory.get(cfg, train_items=train_items, device=device)
@@ -292,8 +240,8 @@ def train_single_run(cfg, run_dir, train_loader, val_loader, train_items, device
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer,
-        milestones=cfg['train'].get('lr_milestones', [15, 30]),
-        gamma=cfg['train'].get('lr_gamma', 0.1)
+        milestones=cfg["train"].get("lr_milestones", [15, 30]),
+        gamma=cfg["train"].get("lr_gamma", 0.1),
     )
 
     trainer = Trainer(
@@ -304,7 +252,7 @@ def train_single_run(cfg, run_dir, train_loader, val_loader, train_items, device
         scheduler=scheduler,
         cfg=cfg,
         device=device,
-        run_dir=run_dir
+        run_dir=run_dir,
     )
 
     print(f"\n=== Starting Run: {run_dir.name} {f'({fold_info})' if fold_info else ''} ===")
@@ -318,20 +266,20 @@ def main():
 
     cfg = load_config(args.config)
 
-    system_seed = cfg['system'].get('seed', 42)
+    system_seed = cfg["system"].get("seed", 42)
     seed_everything(system_seed)
 
-    device = torch.device(cfg['system'].get('device', 'cuda') if torch.cuda.is_available() else 'cpu')
+    device = torch.device(cfg["system"].get("device", "cuda") if torch.cuda.is_available() else "cpu")
 
-    base_run_name = cfg['system'].get('run_name', 'default_run')
-    runs_root = Path(cfg['system'].get('runs_dir', 'runs'))
+    base_run_name = cfg["system"].get("run_name", "default_run")
+    runs_root = Path(cfg["system"].get("runs_dir", "runs"))
 
     dm = DataManager(cfg)
 
-    cv_cfg = cfg.get('train', {}).get('cv', cfg.get('cv', {}))
-    if cv_cfg.get('enabled', False):
-        num_folds = int(cv_cfg.get('num_runs', 5))
-        cv_seed = cv_cfg.get('seed', system_seed)
+    cv_cfg = cfg.get("train", {}).get("cv", cfg.get("cv", {}))
+    if cv_cfg.get("enabled", False):
+        num_folds = int(cv_cfg.get("num_runs", 5))
+        cv_seed = cv_cfg.get("seed", system_seed)
 
         base_dir = ensure_unique_run_dir(runs_root, f"{base_run_name}_CV")
 
@@ -350,12 +298,17 @@ def main():
             (train_loader, val_loader), train_items = dm.get_cv_loaders(
                 fold_idx=fold,
                 num_folds=num_folds,
-                seed=cv_seed
+                seed=cv_seed,
             )
 
             train_single_run(
-                cfg, fold_dir, train_loader, val_loader,
-                train_items, device, fold_info=f"Fold {fold+1}/{num_folds}"
+                cfg,
+                fold_dir,
+                train_loader,
+                val_loader,
+                train_items,
+                device,
+                fold_info=f"Fold {fold+1}/{num_folds}",
             )
 
         summarize_cv(base_dir, fold_dirs, cfg, num_folds=num_folds, cv_seed=cv_seed)
