@@ -1,4 +1,3 @@
-```markdown
 # DAM Classifier (Draw-a-Man Checklist)
 
 A deep learning framework for multi-label classification of children's "Draw-a-Man" drawings. This project scores drawings against a **48-item checklist** using PyTorch and `timm` backbones.
