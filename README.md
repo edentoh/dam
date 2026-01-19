@@ -111,7 +111,7 @@ To run the model on a folder of images and generate an Excel report:
 2. Run:
 
 ```bash
-python scripts/predict_to_excel.py
+python -m scripts.predict_to_excel
 
 ```
 
