@@ -85,7 +85,7 @@ To train the model using the settings in `config.toml`:
 
 ```bash
 # Ensure you are in the root directory
-python scripts/train.py --config config.toml
+python -m scripts.train --config config.toml
 
 ```
 
@@ -97,7 +97,7 @@ To run K-Fold CV, set `enabled = true` under the `[train.cv]` section in `config
 After training, you can calculate the optimal probability threshold for *each* of the 48 items to maximize accuracy on the validation set:
 
 ```bash
-python scripts/compute_threshold_vector.py
+python -m scripts.compute_threshold_vector
 
 ```
 
