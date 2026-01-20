@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>DAM Predictor</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #007bff;
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --border: #dee2e6;
+      --text: #212529;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 16px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: var(--surface);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+
+    h2, h3 { margin-top: 0; }
+
+    input[type="text"], input[type="password"] {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 16px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+      color: #495057;
+    }
+
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    @media (min-width: 600px) {
+      .btn-group { flex-direction: row; }
+    }
+
+    button {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 16px;
+      width: 100%;
+      touch-action: manipulation;
+    }
+
+    button.secondary { background-color: #6c757d; }
+    button.success { background-color: #28a745; }
+    button.pdf-btn { background-color: #dc3545; margin-top: 10px; width: auto; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button:active { transform: scale(0.98); opacity: 0.9; }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 32px 16px;
+      text-align: center;
+      background: #fafafa;
+      cursor: pointer;
+      margin-bottom: 16px;
+      transition: background 0.2s;
+    }
+
+    .drop-zone:active, .drop-zone.active {
+      border-color: var(--primary);
+      background-color: #e7f1ff;
+    }
+
+    .drop-zone p { margin: 0; color: #666; pointer-events: none; }
+    #fileInput { display: none; }
+
+    /* Camera UI */
+    #cameraContainer {
+      display: none;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    video, #photoPreview {
+      width: 100%;
+      height: auto;
+      max-height: 60vh;
+      object-fit: contain;
+      display: block;
+      background: #000;
+    }
+
+    .camera-controls {
+      padding: 16px;
+      background: #222;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    #status { font-weight: bold; margin-bottom: 16px; min-height: 24px; color: var(--primary); }
+
+    .summary-card {
+      background: #f1f3f5;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border-left: 5px solid var(--primary);
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { background: #f8f9fa; font-weight: 600; }
+
+    .pill {
+      padding: 4px 10px; border-radius: 99px;
+      font-size: 12px; font-weight: 700;
+      display: inline-block; min-width: 40px; text-align: center;
+    }
+    .yes { background: #d4edda; color: #155724; }
+    .no { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>DAM Predictor</h2>
+
+  <div class="summary-card" id="uploadHelp" style="margin: 12px 0 18px 0;">
+    <h3 style="margin: 0 0 8px 0;">Image upload guidelines (Draw-A-Man)</h3>
+    <ul style="margin: 0; padding-left: 18px;">
+      <li>Upload a <strong>single child’s drawing of a person</strong> (not a photo of a person, not a document/worksheet).</li>
+      <li>Use a <strong>plain sheet of paper</strong> on a flat surface; avoid patterned backgrounds.</li>
+      <li>Ensure the <strong>full page is visible</strong>, well-lit, and captured <strong>straight-on</strong> (minimise shadows and glare).</li>
+      <li>Avoid extreme tilt/rotation; keep the drawing upright if possible.</li>
+      <li>Do not upload blank pages; include the complete drawing in-frame.</li>
+    </ul>
+    <div style="margin-top: 10px; color: #495057;">
+      Note: The system applies automatic filtering and may reject non-DAM images (photos, documents, blank pages, very low quality captures).
+    </div>
+  </div>
+
+
+  <div style="display: grid; gap: 16px; grid-template-columns: 1fr;">
+    <div>
+      <label for="apiKey">API Key</label>
+      <input type="password" id="apiKey" placeholder="Enter API Key" />
+    </div>
+
+    <div>
+      <label for="subjectName">Subject Name (Optional)</label>
+      <input type="text" id="subjectName" placeholder="Enter name for report..." />
+    </div>
+  </div>
+
+  <div id="cameraContainer">
+    <video id="videoFeed" autoplay playsinline muted></video>
+    <img id="photoPreview" alt="Captured photo preview" style="display:none;" />
+
+    <div class="camera-controls">
+      <!-- Live capture controls -->
+      <button id="snapBtn" class="success">Take Photo</button>
+      <button id="closeCamBtn" class="secondary">Cancel</button>
+
+      <!-- Preview confirmation controls -->
+      <button id="retakeBtn" class="secondary" style="display:none;">Retake</button>
+      <button id="usePhotoBtn" class="success" style="display:none;">Use Photo</button>
+    </div>
+
+    <canvas id="cameraCanvas" style="display:none;"></canvas>
+  </div>
+
+  <div id="uploadInterface">
+    <div class="drop-zone" id="dropZone">
+      <p>📂 Tap here to upload image<br><small>or Drag & Drop</small></p>
+      <div id="fileNameDisplay" style="margin-top:8px; font-weight:600; color:var(--primary);"></div>
+    </div>
+
+    <input type="file" id="fileInput" accept="image/*" />
+
+    <div class="btn-group">
+      <button id="startCamBtn" class="secondary">📷 Use Camera</button>
+      <button id="analyzeBtn">Analyze Drawing</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="resultsArea" style="display:none;">
+    <div class="summary-card">
+      <h3 style="margin-bottom: 8px;">Analysis Summary</h3>
+      <div id="summaryText"></div>
+      <button id="downloadPdfBtn" class="pdf-btn">Download PDF Report</button>
+    </div>
+
+    <div class="table-wrapper">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Description</th>
+            <th>Result</th>
+            <th>Conf.</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  // --- CONFIGURATION ---
+  const API = "";
+
+  const CRITERIA = [
+    "Legs", "Arms", "Trunk", "Length of trunk greater than breadth",
+    "Shoulders are indicated (abrupt broadening of trunk below neck)",
+    "Both arms and legs are attached (reasonably) to the trunk",
+    "Arms and legs attached (reasonably) to trunk at correct points",
+    "Neck present",
+    "Outline of the neck is continuous with that of the head, trunk, or both",
+    "Eyes present (one or two)", "Nose", "Mouth",
+    "Nose and mouth in two dimensions, two lips shown", "Nostril shown",
+    "Hair shown", "Hair better than a scribble and covering the scalp",
+    "Teeth", "Tongue", "Arm joint shown – elbow, shoulder, or both",
+    "Leg joint shown – knee, hip, or both",
+    "Ears present (Two ears in full face, one ear in side profile view)",
+    "Ears present in correct position and proportion",
+    "Eye details – brow or lashes shown", "Eye detail – pupil shown",
+    "Eye detail – proportion. Length greater than width", "Smile", "Belly button",
+    "Clothing present (any clear representation of clothing)",
+    "Two articles of clothing non transparent (e.g., hat, trousers)",
+    "Entire drawing free from transparencies",
+    "Four articles of clothing definitely indicated (e.g., hat, shoes, coat)",
+    "Fingers present (any indication)", "Correct number of fingers shown",
+    "Fingers in two dimensions – length greater than breadth",
+    "Opposition of thumb clearly defined", "Hand shown distinct from fingers and arm",
+    "Fingernail(s)", "Head not more than 1/2 or less than 1/10 of trunk",
+    "Arm length is equal to the trunk length but not reaching the knees",
+    "Legs length more than trunk length, but less than 2x trunk width",
+    "Feet in two dimensions – not more than 1/3 or less than 1/10 of leg",
+    "Both arms and legs in two dimensions",
+    "Lines firm without marked tendency to cross, gap, or overlap",
+    "All lines firm with correct joining",
+    "Outline of head without obvious irregularities",
+    "Trunk outline without obvious irregularities",
+    "Arms and legs without irregularities (2D, no narrowing at junction)",
+    "Paired body parts are symmetrical"
+  ];
+
+  // --- ELEMENTS ---
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileNameDisplay = document.getElementById('fileNameDisplay');
+  const startCamBtn = document.getElementById('startCamBtn');
+  const cameraContainer = document.getElementById('cameraContainer');
+  const uploadInterface = document.getElementById('uploadInterface');
+  const videoFeed = document.getElementById('videoFeed');
+  const photoPreview = document.getElementById('photoPreview');
+
+  const snapBtn = document.getElementById('snapBtn');
+  const closeCamBtn = document.getElementById('closeCamBtn');
+  const retakeBtn = document.getElementById('retakeBtn');
+  const usePhotoBtn = document.getElementById('usePhotoBtn');
+
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const downloadPdfBtn = document.getElementById('downloadPdfBtn');
+  const subjectNameInput = document.getElementById('subjectName');
+
+  let selectedFile = null;
+  let currentResults = null;
+
+  let stream = null;
+  let capturedBlob = null;
+  let previewUrl = null;
+
+  // --- UPLOAD HANDLERS ---
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFiles(e.target.files);
+    }
+  });
+
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+    }, false);
+  });
+
+  ['dragenter', 'dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, () => dropZone.classList.add('active'), false);
+  });
+
+  ['dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, () => dropZone.classList.remove('active'), false);
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    handleFiles(e.dataTransfer.files);
+  });
+
+  function handleFiles(files) {
+    if (files && files[0]) {
+      selectedFile = files[0];
+      fileNameDisplay.textContent = `✅ Selected: ${selectedFile.name}`;
+      document.getElementById("status").textContent = "";
+    }
+  }
+
+  // --- CAMERA HANDLERS (UPDATED: preview -> retake/use) ---
+
+  startCamBtn.addEventListener('click', async () => {
+    await startCamera();
+  });
+
+  closeCamBtn.addEventListener('click', () => {
+    // Cancel camera session without changing selectedFile
+    cleanupPreview();
+    stopCamera();
+  });
+
+  snapBtn.addEventListener('click', async () => {
+    const canvas = document.getElementById('cameraCanvas');
+
+    if (!videoFeed.videoWidth || !videoFeed.videoHeight) {
+      alert("Camera is not ready yet. Please try again.");
+      return;
+    }
+
+    canvas.width = videoFeed.videoWidth;
+    canvas.height = videoFeed.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(blob => {
+      if (!blob) {
+        alert("Failed to capture image. Please retake.");
+        return;
+      }
+
+      capturedBlob = blob;
+
+      // Create preview URL
+      cleanupPreview();
+      previewUrl = URL.createObjectURL(blob);
+      photoPreview.src = previewUrl;
+
+      // Switch UI to preview mode (ask user retake or use)
+      setCameraMode("preview");
+
+      // Optional: stop stream during preview (saves battery). Retake will re-open.
+      stopStreamOnly();
+
+    }, 'image/jpeg', 0.95);
+  });
+
+  retakeBtn.addEventListener('click', async () => {
+    // Discard captured image and return to live camera
+    capturedBlob = null;
+    cleanupPreview();
+    await startCamera();
+  });
+
+  usePhotoBtn.addEventListener('click', () => {
+    if (!capturedBlob) {
+      alert("No captured photo available. Please take a photo first.");
+      return;
+    }
+
+    const file = new File([capturedBlob], "camera_capture.jpg", { type: "image/jpeg" });
+    handleFiles([file]);
+
+    capturedBlob = null;
+    cleanupPreview();
+    stopCamera();
+  });
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("Camera access blocked. Try using HTTPS.");
+      return;
+    }
+
+    try {
+      // Reset UI
+      capturedBlob = null;
+      cleanupPreview();
+      setCameraMode("live");
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+
+      videoFeed.srcObject = stream;
+
+      cameraContainer.style.display = 'block';
+      uploadInterface.style.display = 'none';
+    } catch (err) {
+      console.error(err);
+      alert("Camera Error: " + err.message);
+      // Ensure UI returns to upload interface if camera fails
+      stopCamera();
+    }
+  }
+
+  function stopStreamOnly() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    // Keep camera container visible in preview mode; just stops the camera device.
+  }
+
+  function stopCamera() {
+    stopStreamOnly();
+    cameraContainer.style.display = 'none';
+    uploadInterface.style.display = 'block';
+    setCameraMode("live");
+  }
+
+  function cleanupPreview() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+    }
+    photoPreview.src = "";
+  }
+
+  function setCameraMode(mode) {
+    // mode: "live" or "preview"
+    if (mode === "preview") {
+      videoFeed.style.display = "none";
+      photoPreview.style.display = "block";
+
+      snapBtn.style.display = "none";
+      closeCamBtn.style.display = "none";
+
+      retakeBtn.style.display = "inline-block";
+      usePhotoBtn.style.display = "inline-block";
+    } else {
+      // live
+      videoFeed.style.display = "block";
+      photoPreview.style.display = "none";
+
+      snapBtn.style.display = "inline-block";
+      closeCamBtn.style.display = "inline-block";
+
+      retakeBtn.style.display = "none";
+      usePhotoBtn.style.display = "none";
+    }
+  }
+
+  // --- PREDICTION LOGIC ---
+  analyzeBtn.onclick = async () => {
+    const key = document.getElementById("apiKey").value.trim();
+
+    if (!selectedFile) return alert("Please select or capture an image first.");
+    if (!key) return alert("Please enter the API key.");
+
+    document.getElementById("status").textContent = "Analyzing... (Please wait)";
+    document.getElementById("resultsArea").style.display = "none";
+
+    const fd = new FormData();
+    fd.append("file", selectedFile);
+
+    try {
+      const res = await fetch(`${API}/predict`, {
+        method: "POST",
+        headers: { "X-API-Key": key },
+        body: fd
+      });
+
+      if (!res.ok) {
+        let msg = "";
+        try {
+          const errJson = await res.json();
+          if (errJson && typeof errJson === 'object') {
+            if (typeof errJson.detail === 'string') msg = errJson.detail;
+            else if (errJson.detail && typeof errJson.detail === 'object') {
+              msg = errJson.detail.message || JSON.stringify(errJson.detail);
+            } else {
+              msg = JSON.stringify(errJson);
+            }
+          }
+        } catch (e) {
+          // fallback
+        }
+        if (!msg) {
+          msg = await res.text();
+        }
+        throw new Error(msg);
+      }
+
+      const data = await res.json();
+      currentResults = data;
+      displayResults(data);
+      document.getElementById("status").textContent = "Done.";
+
+    } catch (err) {
+      document.getElementById("status").textContent = "Analysis Failed.";
+      alert("Error: " + err.message);
+    }
+  };
+
+  function displayResults(data) {
+    const score = data.total_score;
+    const mentalAge = (score / 4) + 3;
+
+    const years = Math.floor(mentalAge);
+    const months = Math.round((mentalAge - years) * 12);
+    const ageString = `${years} years${months > 0 ? `, ${months} months` : ''}`;
+
+    const name = subjectNameInput.value.trim();
+    const displayName = name ? `for ${name}` : "";
+
+    document.getElementById("summaryText").innerHTML = `
+      <strong>Analysis ${displayName}</strong><br>
+      <strong>Total Score:</strong> ${score} / 48<br>
+      <strong>Estimated Mental Age:</strong> ${ageString}
+    `;
+
+    const tbody = document.querySelector("#tbl tbody");
+    tbody.innerHTML = "";
+
+    data.items.forEach((it, index) => {
+      const desc = CRITERIA[index] || `Item ${it.item}`;
+      const tr = document.createElement("tr");
+      const pass = it.pass === 1;
+
+      tr.innerHTML = `
+        <td>${it.item}</td>
+        <td>${desc}</td>
+        <td><span class="pill ${pass ? "yes" : "no"}">${pass ? "YES" : "NO"}</span></td>
+        <td style="color:#666; font-size:0.9em;">${(it.prob * 100).toFixed(1)}%</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById("resultsArea").style.display = "block";
+  }
+
+  // --- PDF GENERATION ---
+  downloadPdfBtn.onclick = async () => {
+    if (!selectedFile || !currentResults) return;
+
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      alert("PDF library not loaded. Check internet connection.");
+      return;
+    }
+
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const name = subjectNameInput.value.trim();
+
+      doc.setFontSize(18);
+      const title = name ? `Analysis Report for ${name}` : "DAM Predictor Analysis Report";
+      doc.text(title, 14, 20);
+
+      const score = currentResults.total_score;
+      const mentalAge = (score / 4) + 3;
+      const years = Math.floor(mentalAge);
+      const months = Math.round((mentalAge - years) * 12);
+
+      doc.setFontSize(12);
+      doc.text(`Total Score: ${score} / 48`, 14, 30);
+      doc.text(`Estimated Mental Age: ${years} years, ${months} months`, 14, 38);
+      doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 46);
+
+      try {
+        const base64Img = await readFileAsBase64(selectedFile);
+        const imgProps = doc.getImageProperties(base64Img);
+        const maxW = 60, maxH = 60;
+        const ratio = imgProps.width / imgProps.height;
+        let w = maxW, h = w / ratio;
+        if (h > maxH) { h = maxH; w = h * ratio; }
+
+        doc.addImage(base64Img, 'JPEG', 130, 15, w, h);
+      } catch (e) {
+        console.warn("Image error", e);
+      }
+
+      doc.autoTable({
+        html: '#tbl',
+        startY: 65,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 123, 255] },
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          2: { cellWidth: 15 }
+        }
+      });
+
+      const filename = name ? `DAM_Report_${name.replace(/[^a-z0-9]/gi, '_')}.pdf` : "DAM_Report.pdf";
+      doc.save(filename);
+
+      alert(`PDF Report saved successfully as:\n${filename}`);
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate PDF: " + err.message);
+    }
+  };
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+});
+</script>
+</body>
+</html>
