@@ -14,9 +14,11 @@ venv/
 # --- Datasets / images (your folders) ---
 img_dataset/
 image_cropped/
-# If "amateur_drawings" is a dataset folder, ignore it too:
 amateur_drawings/
 labels/
+labels_gate/
+false_images_base_flat/
+false_images/
 
 # Optional: ignore common image formats anywhere
 *.jpg
@@ -32,10 +34,12 @@ runs/
 results/
 pose_pretrain.py
 amateur_drawings_annotations.json
-app.py
-web/
 test_crop.ipynb
 check_split.py
+
+# --- Website / deployment ---
+app.py
+web/
 
 # Optional: model artifacts (if you generate them)
 *.pt

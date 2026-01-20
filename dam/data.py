@@ -99,7 +99,6 @@ class DataManager:
         if cfg_d.get("use_crop_to_ink", False):
             ops.append(
                 CropToInk(
-                    cfg_d.get("crop_threshold", 245),
                     cfg_d.get("crop_pad", 12),
                     cfg_d.get("crop_min_size", 50),
                 )
