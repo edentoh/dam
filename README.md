@@ -47,7 +47,7 @@ The project uses a split configuration system:
 
 It is recommended to run commands from the project root.
 
-### 1. Data Preparation
+### 1. Data Preparation (for gate training)
 Utilities to organize raw datasets before training.
 
 * **Flatten a raw download folder:**
