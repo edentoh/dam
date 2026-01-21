@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dam"
+version = "0.1.0"
+description = "Draw-A-Man assessment package"
+authors = [{name = "Eden"}]
+requires-python = ">=3.9"
+# Note: We removed the 'dependencies' list here to let requirements.txt handle it.
+
+[tool.setuptools.packages.find]
+where = ["src"]

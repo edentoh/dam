@@ -2,6 +2,14 @@
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+*.whl
+.vscode/
+.pytest_cache/
 
 # --- Virtual environments ---
 dam_venv/
@@ -10,6 +18,10 @@ venv/
 
 # --- Secrets ---
 .env
+
+# --- local configs ---
+configs/config_score.toml
+configs/config_gate.toml
 
 # --- Datasets / images (your folders) ---
 img_dataset/
@@ -36,6 +48,7 @@ pose_pretrain.py
 amateur_drawings_annotations.json
 test_crop.ipynb
 check_split.py
+tests/
 
 # --- Website / deployment ---
 
@@ -48,3 +61,4 @@ check_split.py
 # --- Local outputs / spreadsheets ---
 *.xlsx
 *.xls
+*.csv

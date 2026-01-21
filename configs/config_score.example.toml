@@ -16,7 +16,7 @@ pose_pretrain_backbone = "runs/pose_pretrain_convnext_tiny/backbone_pretrain.pth
 # TRAINING CONFIG (train.py)
 # =========================
 [train]
-epochs = 65
+epochs = 100
 batch_size = 16
 learning_rate = 0.00005
 weight_decay = 0.3
@@ -40,7 +40,7 @@ metric_threshold = 0.5
 # switch loss: 'bce' or 'asl'
 loss = "bce"
 
-lr_milestones = [15, 30, 45, 55]
+lr_milestones = [15, 30, 45, 60, 75, 90]
 lr_gamma = 0.5
 use_weighted_loss = true
 pos_weight_clamp = 10.0
@@ -65,8 +65,9 @@ img_size = 420
 num_workers = 0
 
 # Preprocess (keep train/predict consistent unless you intentionally change it)
-use_crop_to_ink = true
-crop_pad = 15
+use_crop_to_ink = false
+crop_threshold = 245
+crop_pad = 12
 crop_min_size = 50
 
 [train.cv]
@@ -75,12 +76,12 @@ num_runs = 5
 seed = 333
 
 # =============================================
-# PREDICT + APP CONFIG (predict_to_excel.py, app.py)
+# PREDICT CONFIG (predict_cli.py, compute_threshold_vector.py)
 # =============================================
 [predict]
-model_path = "runs/convnextv2_tiny_ms1__18/best.pth"
+model_path = "runs/convnextv2_tiny_ms1/best.pth"
 input_image_dir = "img_dataset/val"
-output_excel = "DAM_Predictions_test.xlsx"
+output_excel = "results/DAM_Predictions_test.xlsx"
 
 # Inference batch size for scripts (not used by the API, which is single-image)
 batch_size = 16
@@ -92,13 +93,14 @@ threshold_vector_path = "threshold_vector.json"
 threshold_scalar_fallback = 0.5
 
 # If true, prediction/app will error if vector JSON is missing/invalid.
-require_threshold_vector = false
+require_threshold_vector = true
 
 [predict.data]
 # Preprocess for inference (should mirror [train.data] unless you purposely change it)
 img_size = 420
 num_workers = 0
 use_crop_to_ink = true
+crop_threshold = 245
 crop_pad = 12
 crop_min_size = 50
 

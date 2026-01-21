@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 
 class AsymmetricLoss(nn.Module):
     """
     Asymmetric Loss for Multi-Label Classification.
+    Reduces the penalty for negative samples (easy negatives) to focus on hard positives.
     """
     def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=True):
         super(AsymmetricLoss, self).__init__()
@@ -42,6 +42,10 @@ class AsymmetricLoss(nn.Module):
         return -loss.mean()
 
 class LossFactory:
+    """
+    Factory to create loss functions based on config.
+    Supports: BCEWithLogitsLoss (weighted/unweighted) and AsymmetricLoss.
+    """
     @staticmethod
     def get(cfg: dict, train_items: list = None, device: str = 'cpu'):
         loss_name = cfg['train'].get('loss', 'bce').lower()
@@ -59,7 +63,6 @@ class LossFactory:
 
             if manual_weight is not None:
                 print(f"[Loss] Using manual pos_weight from config: {manual_weight}")
-                # Handle list vs scalar
                 if isinstance(manual_weight, (list, tuple)):
                     pos_weight = torch.tensor(manual_weight, device=device, dtype=torch.float32)
                 else:
@@ -82,10 +85,12 @@ class LossFactory:
 
     @staticmethod
     def _calculate_pos_weights(items, max_weight=10.0):
+        # Extract all labels from the dataset items
         y = np.stack([it[1] for it in items], axis=0)
         pos = y.sum(axis=0)
         neg = y.shape[0] - pos
         w = np.ones_like(pos, dtype=np.float32)
+        
         mask = pos > 0
         w[mask] = (neg[mask] / pos[mask]).astype(np.float32)
 

@@ -1,6 +1,5 @@
 import torch.nn as nn
 
-
 def get_module_by_path(root: nn.Module, path: str):
     """Resolves dotted attribute paths (e.g., 'head.fc') against a module."""
     cur = root
@@ -10,16 +9,10 @@ def get_module_by_path(root: nn.Module, path: str):
         cur = getattr(cur, part)
     return cur
 
-
 def resolve_classifier_modules(model: nn.Module) -> list[nn.Module]:
-    """Best-effort resolution of a model's classifier/head modules.
-
-    Supports timm's `get_classifier()` conventions:
-      - returns an nn.Module
-      - returns a dotted string path to the classifier
-      - returns a list/tuple of modules or paths
-
-    Returns a list of modules (possibly empty).
+    """
+    Best-effort resolution of a model's classifier/head modules.
+    Useful for applying discriminative learning rates.
     """
     if not hasattr(model, "get_classifier"):
         return []
@@ -53,3 +46,13 @@ def resolve_classifier_modules(model: nn.Module) -> list[nn.Module]:
         if hasattr(m, "parameters"):
             out.append(m)
     return out
+
+def infer_in_channels(model: nn.Module) -> int:
+    """
+    Inspects the first Conv2d layer to determine input channels.
+    Useful for building matching transforms.
+    """
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            return int(m.in_channels)
+    return 3

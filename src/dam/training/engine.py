@@ -1,37 +1,10 @@
 from datetime import datetime
-
 import torch
 import torch.nn as nn
 
-from .modeling_utils import resolve_classifier_modules
-from .utils import atomic_write_json
-
-
-def calculate_metrics(y_true, y_prob, threshold=0.5):
-    """Computes Micro F1, Macro F1, and Element-wise Accuracy."""
-    y_pred = (y_prob >= threshold).float()
-
-    # --- Micro F1 ---
-    tp_micro = (y_pred * y_true).sum()
-    denom_micro = (y_pred + y_true).sum()
-    micro_f1 = (2 * tp_micro / denom_micro).item() if denom_micro > 0 else 0.0
-
-    # --- Macro F1 ---
-    tp = (y_pred * y_true).sum(dim=0)
-    fp = (y_pred * (1 - y_true)).sum(dim=0)
-    fn = ((1 - y_pred) * y_true).sum(dim=0)
-
-    eps = 1e-8
-    precision = tp / (tp + fp + eps)
-    recall = tp / (tp + fn + eps)
-    f1_per_class = 2 * (precision * recall) / (precision + recall + eps)
-    macro_f1 = f1_per_class.mean().item()
-
-    # --- Accuracy ---
-    acc = (y_pred == y_true).float().mean().item()
-
-    return micro_f1, macro_f1, acc
-
+from dam.utils.io import atomic_write_json
+from dam.modeling.utils import resolve_classifier_modules
+from .metrics import calculate_metrics
 
 def _freeze_backbone(model):
     """Freeze all params except the classifier/head."""
@@ -39,8 +12,8 @@ def _freeze_backbone(model):
         p.requires_grad = False
 
     head_modules = resolve_classifier_modules(model)
-    # Best-effort: if we can't resolve the head, do nothing (safer than freezing everything).
     if not head_modules:
+        # Fallback: if we can't find head, unfreeze everything to be safe
         for p in model.parameters():
             p.requires_grad = True
         return
@@ -49,11 +22,9 @@ def _freeze_backbone(model):
         for p in m.parameters():
             p.requires_grad = True
 
-
 def _unfreeze_all(model):
     for p in model.parameters():
         p.requires_grad = True
-
 
 class Trainer:
     def __init__(self, model, loaders, criterion, optimizer, scheduler, cfg, device, run_dir):
@@ -65,9 +36,9 @@ class Trainer:
         self.cfg = cfg
         self.device = device
         self.run_dir = run_dir
+        
         self.threshold = cfg["train"].get("metric_threshold", cfg["train"].get("threshold", 0.5))
 
-        # History tracking
         self.history = {
             "created_at": datetime.now().isoformat(),
             "config": cfg,
@@ -77,6 +48,7 @@ class Trainer:
     def train_epoch(self):
         self.model.train()
         total_loss = 0.0
+        
         for x, y, _ in self.train_loader:
             x, y = x.to(self.device), y.to(self.device)
 
@@ -120,14 +92,14 @@ class Trainer:
         metric_key = self.cfg["train"].get("metric_for_best", "val_f1_micro")
         best_path = self.run_dir / "best.pth"
 
-        # Hybrid schedule: freeze backbone for N epochs, then unfreeze and continue fine-tuning.
+        # Hybrid schedule: freeze backbone for N epochs
         freeze_epochs = int(self.cfg["train"].get("freeze_backbone_epochs", 0) or 0)
         is_frozen = False
 
         print(f"Starting training for {epochs} epochs on {self.device}...")
 
         for ep in range(1, epochs + 1):
-            # Apply hybrid freeze/unfreeze policy at the start of the epoch.
+            # Hybrid Freeze Logic
             if freeze_epochs > 0 and ep <= freeze_epochs:
                 if not is_frozen:
                     _freeze_backbone(self.model)
@@ -143,15 +115,14 @@ class Trainer:
             v_loss, v_acc, v_micro, v_macro = self.validate()
 
             self.scheduler.step()
+            
+            # Log LR
             lr_groups = []
             for i, pg in enumerate(self.optimizer.param_groups):
                 name = pg.get("name", f"group_{i}")
                 lr_groups.append({"name": str(name), "lr": float(pg.get("lr", 0.0))})
 
-            if len(lr_groups) == 1:
-                lr_display = f"{lr_groups[0]['lr']:.2e}"
-            else:
-                lr_display = " | ".join([f"{g['name']} {g['lr']:.2e}" for g in lr_groups])
+            lr_display = " | ".join([f"{g['name']} {g['lr']:.2e}" for g in lr_groups])
 
             print(
                 f"Ep {ep:03d} | Lr {lr_display} | "
@@ -159,6 +130,7 @@ class Trainer:
                 f"V_F1(mac) {v_macro:.4f} | V_F1(mic) {v_micro:.4f} | V_Acc {v_acc:.4f}"
             )
 
+            # Record History
             row = {
                 "epoch": ep,
                 "train_loss": t_loss,
@@ -172,21 +144,20 @@ class Trainer:
             self.history["epochs"].append(row)
             atomic_write_json(self.run_dir / "history.json", self.history)
 
+            # Checkpoint Best
             current_val = v_macro if metric_key == "val_f1_macro" else v_micro
 
             if current_val > best_metric:
                 best_metric = float(current_val)
-
+                
                 ckpt = {
                     "epoch": int(ep),
                     "model_state": self.model.state_dict(),
                     "metric_name": str(metric_key),
                     "best_metric_val": float(best_metric),
                     "epoch_metrics": row,
-                    "learning_rate": [g["lr"] for g in lr_groups],
-                    "learning_rate_groups": lr_groups,
-                    "metric_threshold": float(self.threshold),
                     "config": self.cfg,
+                    "img_size": int(self.cfg.get("train", {}).get("data", {}).get("img_size", 384))
                 }
                 torch.save(ckpt, best_path)
 
@@ -194,18 +165,10 @@ class Trainer:
                     "saved_at": datetime.now().isoformat(timespec="seconds"),
                     "run_dir": str(self.run_dir),
                     "best_epoch": int(ep),
-                    "metric_for_best": str(metric_key),
                     "best_metric_val": float(best_metric),
                     "checkpoint_path": str(best_path),
-                    "history_path": str(self.run_dir / "history.json"),
-                    "learning_rate": [g["lr"] for g in lr_groups],
-                    "learning_rate_groups": lr_groups,
-                    "metric_threshold": float(self.threshold),
-                    "epoch_metrics": row,
-                    "config": self.cfg,
                 }
                 atomic_write_json(self.run_dir / "best_model_metadata.json", best_meta)
-
-                print(f"  --> New Best {metric_key}: {best_metric:.4f} saved (+ metadata)")
+                print(f"  --> New Best {metric_key}: {best_metric:.4f} saved")
 
         print("Training Finished.")

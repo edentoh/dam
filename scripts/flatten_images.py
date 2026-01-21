@@ -1,46 +1,28 @@
-#!/usr/bin/env python3
 """
 flatten_images.py
 
 Flatten a directory tree:
 - Move (or copy) all images into a single output folder.
-- Remove non-image files (default: move to quarantine; optional: delete).
-- Optionally delete empty directories afterwards.
+- Remove non-image files (quarantine or delete).
+- Useful for raw datasets downloaded from the web.
 
-Usage examples:
-  # Dry-run first (recommended)
-  python flatten_images.py --root false_images_base --out false_images_base_flat --dry-run
-
-  # Move images, quarantine non-images, delete empty dirs
-  python flatten_images.py --root false_images_base --out false_images_base_flat --cleanup-empty-dirs
-
-  # Move images, DELETE non-images (irreversible)
-  python flatten_images.py --root false_images_base --out false_images_base_flat --delete-non-images --cleanup-empty-dirs
+Usage:
+  python -m scripts.flatten_images --root raw_downloads --out dataset_flat --dry-run
 """
-
-from __future__ import annotations
-
 import argparse
-import os
 import shutil
 from pathlib import Path
 from typing import Iterable, Set
 
+# --- Shared Imports ---
+from dam.core.constants import IMG_EXTS
+
+# Optional: Verify images with PIL if available
 try:
     from PIL import Image
     PIL_AVAILABLE = True
-except Exception:
+except ImportError:
     PIL_AVAILABLE = False
-
-
-IMG_EXTS: Set[str] = {
-    ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"
-}
-
-OTHER_COMMON_EXTS: Set[str] = {
-    ".json", ".csv", ".xlsx", ".xls", ".txt", ".yaml", ".yml", ".toml",
-    ".pdf", ".doc", ".docx", ".ppt", ".pptx"
-}
 
 
 def is_image_file(path: Path, verify: bool = True) -> bool:
@@ -78,117 +60,72 @@ def unique_dest(dest_dir: Path, filename: str) -> Path:
         i += 1
 
 
-def ensure_parent(p: Path) -> None:
-    p.parent.mkdir(parents=True, exist_ok=True)
-
-
-def main() -> int:
+def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", required=True, help="Root folder containing subfolders/files to flatten")
-    ap.add_argument("--out", default=None, help="Output folder for all images (single folder). Default: <root>_flat_images")
-    ap.add_argument(
-        "--non-image-out",
-        default=None,
-        help="Folder to move non-image files into (quarantine). Default: <root>_removed_non_images",
-    )
-    ap.add_argument("--copy", action="store_true", help="Copy instead of move (default moves)")
-    ap.add_argument("--delete-non-images", action="store_true", help="Delete non-image files instead of quarantining")
-    ap.add_argument("--no-verify", action="store_true", help="Do not verify images with PIL (extension-only)")
-    ap.add_argument("--dry-run", action="store_true", help="Print actions but do not modify files")
-    ap.add_argument("--cleanup-empty-dirs", action="store_true", help="Remove empty directories after operations")
+    ap.add_argument("--root", required=True, help="Root folder to flatten")
+    ap.add_argument("--out", default=None, help="Output folder")
+    ap.add_argument("--non-image-out", default=None, help="Quarantine folder for non-images")
+    ap.add_argument("--copy", action="store_true", help="Copy instead of move")
+    ap.add_argument("--delete-non-images", action="store_true", help="Delete non-images")
+    ap.add_argument("--no-verify", action="store_true", help="Skip PIL verification")
+    ap.add_argument("--dry-run", action="store_true", help="Simulate only")
+    ap.add_argument("--cleanup-empty-dirs", action="store_true", help="Remove empty folders")
     args = ap.parse_args()
 
     root = Path(args.root).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"Root folder not found: {root}")
+    if not root.exists():
+        raise SystemExit(f"Root not found: {root}")
 
-    out_dir = Path(args.out).expanduser().resolve() if args.out else root.with_name(root.name + "_flat_images")
+    out_dir = Path(args.out).expanduser().resolve() if args.out else root.with_name(root.name + "_flat")
     non_img_dir = (
         Path(args.non_image_out).expanduser().resolve()
         if args.non_image_out
-        else root.with_name(root.name + "_removed_non_images")
+        else root.with_name(root.name + "_quarantine")
     )
-
-    verify = not args.no_verify
 
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
         if not args.delete_non_images:
             non_img_dir.mkdir(parents=True, exist_ok=True)
 
-    img_count = 0
-    non_img_count = 0
-    skipped_out_count = 0
+    counts = {"img": 0, "non_img": 0, "skip": 0}
+    verify = not args.no_verify
 
     for p in iter_files(root):
-        # Skip anything already inside output/quarantine directories if they live under root
-        try:
-            if out_dir in p.parents:
-                skipped_out_count += 1
-                continue
-            if (not args.delete_non_images) and (non_img_dir in p.parents):
-                skipped_out_count += 1
-                continue
-        except Exception:
-            pass
+        # Skip if already in output/quarantine
+        if out_dir in p.parents or (not args.delete_non_images and non_img_dir in p.parents):
+            counts["skip"] += 1
+            continue
 
         if is_image_file(p, verify=verify):
             dest = unique_dest(out_dir, p.name)
-            img_count += 1
-            action = "COPY" if args.copy else "MOVE"
-            print(f"{action} IMAGE: {p} -> {dest}")
+            counts["img"] += 1
+            print(f"[IMG] {p.name} -> {dest.name}")
             if not args.dry_run:
-                ensure_parent(dest)
-                if args.copy:
-                    shutil.copy2(str(p), str(dest))
-                else:
-                    shutil.move(str(p), str(dest))
+                shutil.copy2(p, dest) if args.copy else shutil.move(p, dest)
         else:
-            non_img_count += 1
+            counts["non_img"] += 1
             if args.delete_non_images:
-                print(f"DELETE NON-IMAGE: {p}")
+                print(f"[DEL] {p.name}")
                 if not args.dry_run:
-                    try:
-                        p.unlink()
-                    except Exception as e:
-                        print(f"  !! Failed delete: {p} ({type(e).__name__}: {e})")
+                    try: p.unlink()
+                    except: pass
             else:
-                # quarantine while preserving relative path
                 rel = p.relative_to(root)
                 dest = non_img_dir / rel
-                print(f"MOVE NON-IMAGE: {p} -> {dest}")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                print(f"[OTHER] {p.name} -> {dest}")
                 if not args.dry_run:
-                    ensure_parent(dest)
-                    shutil.move(str(p), str(dest))
+                    shutil.move(p, dest)
 
-    if args.cleanup_empty_dirs:
-        # Remove empty dirs bottom-up under root (excluding out_dir / non_img_dir if under root)
+    if args.cleanup_empty_dirs and not args.dry_run:
         for d in sorted([x for x in root.rglob("*") if x.is_dir()], key=lambda x: len(str(x)), reverse=True):
-            # don’t delete output/quarantine dirs if they ended up under root
-            if d == out_dir or d == non_img_dir:
-                continue
-            if out_dir in d.parents or non_img_dir in d.parents:
-                continue
-            try:
-                if not any(d.iterdir()):
-                    print(f"RMDIR EMPTY: {d}")
-                    if not args.dry_run:
-                        d.rmdir()
-            except Exception:
-                pass
+            if d == out_dir or d == non_img_dir: continue
+            try: 
+                if not any(d.iterdir()): d.rmdir()
+            except: pass
 
-    print("\nSummary")
-    print(f"  Root:            {root}")
-    print(f"  Images ->        {out_dir}")
-    if args.delete_non_images:
-        print(f"  Non-images:      deleted")
-    else:
-        print(f"  Non-images ->    {non_img_dir}")
-    print(f"  Images moved/copied: {img_count}")
-    print(f"  Non-images handled:  {non_img_count}")
-    print(f"  Skipped (already in out dirs): {skipped_out_count}")
-    return 0
-
+    print(f"\nDone. Images: {counts['img']}, Non-images: {counts['non_img']}, Skipped: {counts['skip']}")
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
