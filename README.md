@@ -36,7 +36,7 @@ The project uses a split configuration system:
 * `configs/config_gating.toml`: For the binary validity model.
 
 **Environment Setup:**
- Create a `.env` file from the example to configure API keys and default thresholds.
+* Create a `.env` file from the example to configure API keys and default thresholds.
  ```bash
  cp .env.example .env
  # Edit .env to set DAM_API_KEY, device preferences, etc.
