@@ -41,7 +41,6 @@ The project uses a split configuration system:
     cp .env.example .env
     # Edit .env to set DAM_API_KEY, device preferences, etc.
     ```
----
 
 ## 🚀 Usage
 
