@@ -1,155 +1,126 @@
-# DAM Classifier (Draw-a-Man Checklist)
+# DAM (Draw-A-Man) Assessment Project
 
-A deep learning framework for multi-label classification of children's "Draw-a-Man" drawings. This project scores drawings against a **48-item checklist** using PyTorch and `timm` backbones.
+A modular deep learning framework for automating the scoring of children's "Draw-a-Man" drawings. This project includes a multi-label classification model for the 48-item checklist, a binary "gating" model to validate inputs, and a full inference pipeline (CLI & Web API).
 
-## 📌 Overview
+## 📌 Features
 
-This repository implements a complete pipeline for training, validating, and deploying a computer vision model to automate the scoring of the DAM checklist.
-
-**Key Features:**
-* **Multi-Label Classification:** Predicts 48 binary attributes simultaneously.
-* **Flexible Backbones:** Supports any model from the `timm` library (e.g., ConvNeXt V2, ResNet, EfficientNet).
-* **Advanced Training:**
-  * **Loss Functions:** Supports standard `BCEWithLogitsLoss` (with optional class weighting) and **Asymmetric Loss (ASL)** for handling class imbalance.
-  * **Discriminative Learning Rates:** Allows different learning rates for the backbone vs. the classifier head.
-  * **Hybrid Freeze:** Option to freeze the backbone for $N$ epochs before fine-tuning.
-* **Preprocessing:** Includes a custom "Crop to Ink" transform that centers and crops the drawing content based on pixel intensity.
-* **Cross-Validation:** Built-in support for K-Fold Cross-Validation.
-* **Inference:** dedicated scripts to predict on new images and export results to Excel.
+* **Score Model**: Multi-label classification (48 binary attributes) using `timm` backbones (e.g., ConvNeXt V2).
+* **Quality Gating**:
+    * **Heuristic Gate**: Filters blank, dark, or non-drawing images based on pixel stats.
+    * **ML Gate**: Binary classifier ("Is this a valid DAM drawing?") to reject out-of-distribution inputs.
+* **Advanced Inference**: Test-Time Augmentation (TTA) checks and optimized probability thresholds per criteria.
+* **Web API**: FastAPI server for real-time scoring.
 
 ## 🛠️ Installation
 
-1. **Clone the repository.**
-2. **Install dependencies:**
-   Python 3.10+ is recommended.
+1.  **Clone the repository:**
 
-   ```bash
-   pip install -r requirements.txt
+2.  **Install dependencies:**
+    It is recommended to use a virtual environment (Python 3.9+).
+    ```bash
+    # Install libraries
+    pip install -r requirements.txt
 
-```
+    # Install the 'dam' package in editable mode
+    pip install -e .
+    ```
 
-*Key libraries: `torch`, `timm`, `pandas`, `openpyxl`, `pillow`, `numpy`.*
+## ⚙️ Configuration
 
-## 📂 Data Preparation
+The project uses a split configuration system:
+* **`.env`**: System settings (API keys, device, web server limits, gate thresholds).
+* **TOML files** (in `configs/`): Experiment hyperparameters (epochs, learning rates, data paths).
 
-### 1. Image Directory Structure
+**Standard Configs:**
+* `configs/config_score.toml`: For the main 48-item scoring model.
+* `configs/config_gating.toml`: For the binary validity model.
 
-Images should be placed in a root folder (e.g., `img_dataset`) with subfolders for splits if using fixed-split training.
-
-```text
-img_dataset/
-├── train/
-│   ├── drawing_001.jpg
-│   └── ...
-└── val/
-    ├── drawing_105.jpg
-    └── ...
-
-```
-
-**Important:** Image filenames **must** contain a 3-digit ID (e.g., `abc_001.jpg`, `123.png`) to link them to the labels.
-
-### 2. Labels (Excel Format)
-
-Labels are loaded from an Excel file (e.g., `labels/Score_j.xlsx`).
-
-* **Columns:** Must contain "image" in the header (e.g., "Image 001"). The code extracts the ID from this header.
-* **Rows:** The code specifically reads the **first 48 rows** as the checklist criteria.
-* **Values:** `1` (present), `0` (absent), or empty (coerced to 0).
-
-## ⚙️ Configuration (`config.toml`)
-
-All project settings are managed in `config.toml`. Key sections include:
-
-* **[system]:** Device selection (`cuda`/`cpu`), seeds, and run names.
-* **[model]:**
-* `backbone`: The `timm` model name (e.g., `convnextv2_tiny`).
-* `num_classes`: Set to **48**.
-
-
-* **[train]:**
-* `loss`: Choose `"bce"` or `"asl"`.
-* `use_weighted_loss`: Auto-calculates positive weights based on training data balance.
-* `use_discriminative_lr`: Enable distinct learning rates for the head and backbone.
-* `cv`: Enable Cross-Validation settings.
-
-
-* **[train.data]**: Paths to images and labels for training.
-* **[predict]**: Settings for the inference scripts.
+**Environment Setup:**
+    Create a `.env` file from the example to configure API keys and default thresholds.
+    ```bash
+    cp .env.example .env
+    # Edit .env to set DAM_API_KEY, device preferences, etc.
+    ```
+---
 
 ## 🚀 Usage
 
-### 1. Training
+It is recommended to run commands from the project root.
 
-To train the model using the settings in `config.toml`:
+### 1. Data Preparation
+Utilities to organize raw datasets before training.
 
-```bash
-# Ensure you are in the root directory
-python -m scripts.train --config config.toml
+* **Flatten a raw download folder:**
+    Moves images to a single folder and quarantines non-image files.
+    ```bash
+    python -m scripts.flatten_images --root raw_downloads --out img_dataset/flattened
+    ```
 
-```
+* **Filter "Hard Negatives" for Gating:**
+    Finds non-DAM images that pass basic heuristics (to train the ML gate against).
+    ```bash
+    python -m scripts.filter_by_gate --input false_images --output candidates_passed
+    ```
 
-**Cross-Validation:**
-To run K-Fold CV, set `enabled = true` under the `[train.cv]` section in `config.toml`. The script will generate a specific folder for each fold and a summary JSON.
+* **Generate Binary Labels:**
+    Creates the CSV required to train the Gate Model.
+    ```bash
+    python -m scripts.make_binary_labels --pos image_cropped --neg candidates_passed --out labels_gate
+    ```
 
-### 2. Computing Thresholds (Optional)
+### 2. Training
 
-After training, you can calculate the optimal probability threshold for *each* of the 48 items to maximize accuracy on the validation set:
+* **Train the Main Scoring Model (48 classes):**
+    ```bash
+    python -m scripts.train_score --config configs/config_score.toml
+    ```
 
-```bash
-python -m scripts.compute_threshold_vector
+* **Train the Binary Gate Model (Is-DAM?):**
+    ```bash
+    python -m scripts.train_gate --config configs/config_gating.toml
+    ```
 
-```
+### 3. Optimization
 
-This saves a `threshold_vector.json` alongside your model, which allows for per-item sensitivity adjustments during inference.
+* **Compute Optimal Thresholds:**
+    After training the score model, calculate the best probability threshold for each of the 48 criteria using the validation set.
+    ```bash
+    python -m scripts.compute_threshold_vector --config configs/config_score.toml
+    ```
+    *This saves `threshold_vector.json` next to your model file.*
 
-### 3. Inference (Predict to Excel)
+### 4. Inference
 
-To run the model on a folder of images and generate an Excel report:
+* **Batch Prediction (CLI):**
+    Score a folder of images and export results to Excel (`DAM_Predictions.xlsx`).
+    ```bash
+    python -m scripts.predict_cli --config configs/config_score.toml
+    ```
 
-1. Update `[predict]` in `config.toml` with your `model_path` and `input_image_dir`.
-2. Run:
+* **Web API Server:**
+    Start the FastAPI server (auto-reloads on code changes).
+    ```bash
+    python -m scripts.app --host 0.0.0.0 --port 8000 --reload
+    ```
+    *Access the web UI at `http://localhost:8000`*
 
-```bash
-python -m scripts.predict_to_excel
-
-```
-
-This generates `DAM_Predictions.xlsx` containing:
-
-* **Predictions_0_1:** Binary outputs (using thresholds).
-* **Probabilities_0_1:** Raw confidence scores.
-* **Metrics:** Accuracy/F1 scores (if labels are available for the input images).
-
-## 🏗️ Project Structure
+## 📂 Project Structure
 
 ```text
 .
-├── config.toml           # Main configuration file
-├── requirements.txt      # Dependencies
-├── dam/                  # Core Python package
-│   ├── config.py         # Config loader
-│   ├── data.py           # Dataset & Dataloader logic
-│   ├── engine.py         # Training loop & evaluation
-│   ├── loss.py           # Custom loss functions (ASL, Weighted BCE)
-│   ├── model.py          # Model builder (timm wrapper)
-│   ├── transforms.py     # Custom transforms (CropToInk)
-│   └── ...
-└── scripts/              # Entrypoint scripts
-    ├── train.py                   # Training entrypoint
-    ├── predict_to_excel.py        # Batch inference
-    └── compute_threshold_vector.py # Threshold optimization
-
-```
-
-## 📜 License & Credits
-
-This project utilizes:
-
-* [PyTorch](https://pytorch.org/)
-* [timm](https://github.com/huggingface/pytorch-image-models)
-* [OpenPyXL](https://openpyxl.readthedocs.io/)
-
-```
-
-```
+├── configs/                 # TOML configuration files
+├── scripts/                 # Entrypoint scripts (run with python -m)
+│   ├── train_score.py       # Main model training
+│   ├── train_gate.py        # Binary gate training
+│   ├── predict_cli.py       # Excel export inference
+│   └── app.py               # Web server
+├── src/
+│   └── dam/                 # Core package
+│       ├── api/             # FastAPI routes & dependencies
+│       ├── core/            # Config & constants
+│       ├── data/            # Datasets & Transforms (CropToInk)
+│       ├── gating/          # Heuristic & ML gating logic
+│       ├── inference/       # Predictor & threshold logic
+│       ├── modeling/        # Model builders (timm/HF)
+│       └── training/        # Training engine & losses
+└── requirements.txt         # Python dependencies
