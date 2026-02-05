@@ -14,6 +14,7 @@ from dam.training.losses import LossFactory
 from dam.training.optimizers import build_optimizer
 from dam.utils.io import atomic_write_json, ensure_unique_run_dir
 from dam.utils.seeding import seed_everything
+from dam.utils.label_stats import compute_and_save_label_stats
 
 
 def load_json(path: Path) -> dict:
@@ -118,6 +119,12 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
 
 def train_single_run(cfg, run_dir, train_loader, val_loader, train_items, device, fold_info=None):
     """Executes one complete training cycle (setup model -> train -> save)."""
+    # 0. Persist training-only label stats (class counts + correlations)
+    try:
+        compute_and_save_label_stats(train_items, cfg, run_dir)
+    except Exception as e:
+        print(f"[Stats] Warning: failed to compute label stats: {e}")
+
     # 1. Build Model (Handles backbone + pose weights)
     model = ModelBuilder.build(cfg, device)
 

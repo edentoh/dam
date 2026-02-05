@@ -31,6 +31,7 @@ labels/
 labels_gate/
 false_images_base_flat/
 false_images/
+cleaned/
 
 # Optional: ignore common image formats anywhere
 *.jpg
@@ -49,6 +50,10 @@ amateur_drawings_annotations.json
 test_crop.ipynb
 check_split.py
 tests/
+pad_filename.py
+rename_file.py
+label_correlation_report.py
+notebooks/
 
 # --- Website / deployment ---
 

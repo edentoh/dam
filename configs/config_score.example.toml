@@ -8,6 +8,11 @@ runs_dir = "runs"
 [model]
 pretrained = true
 backbone = "convnextv2_tiny"
+head_type = "ml_decoder"
+ml_decoder_dim = 512
+ml_decoder_num_heads = 8
+ml_decoder_dropout = 0.1
+head_dropout = 0.0
 num_classes = 48
 use_pose_pretrain = false
 pose_pretrain_backbone = "runs/pose_pretrain_convnext_tiny/backbone_pretrain.pth"
@@ -45,13 +50,21 @@ lr_gamma = 0.5
 use_weighted_loss = true
 pos_weight_clamp = 10.0
 
-# Which validation metric decides "best.pth": 'val_f1_micro' or 'val_f1_macro'
-metric_for_best = "val_f1_micro"
+# Which validation metric decides "best.pth":
+# 'val_f1_micro', 'val_f1_macro', 'val_map_micro', or 'val_map_macro'
+metric_for_best = "val_map_macro"
 
 # ASL settings
 asl_gamma_neg = 3.0
 asl_gamma_pos = 0.0
 asl_clip = 0.05
+
+# Rare/zero-positive handling (applies to BOTH BCE and ASL)
+# Classes with pos_count < min_pos_for_loss are masked out of loss
+use_class_masking = true
+min_pos_for_loss = 1
+rare_pos_threshold = 10
+rare_weight_factor = 0.3
 
 [train.data]
 # Labels spreadsheet (first 48 rows are criteria; columns like "Image 001" ...)
@@ -76,6 +89,24 @@ num_runs = 5
 seed = 333
 
 # =============================================
+# AUXILIARY HEAD (total score)
+# =============================================
+[aux_head]
+enabled = true
+type = "total_score"
+loss = "mse"
+weight = 0.2
+normalize_target = true
+
+# =============================================
+# CORRELATION CONFIG (train-only stats)
+# =============================================
+[correlation]
+min_support = 5
+min_lift = 2.0
+mode = "p_rare_given_common"
+
+# =============================================
 # PREDICT CONFIG (predict_cli.py, compute_threshold_vector.py)
 # =============================================
 [predict]
@@ -94,6 +125,11 @@ threshold_scalar_fallback = 0.5
 
 # If true, prediction/app will error if vector JSON is missing/invalid.
 require_threshold_vector = true
+
+# Correlation calibration (optional; uses correlation_stats.json saved in run dir)
+use_correlation_calibration = true
+correlation_stats_path = "correlation_stats.json"
+class_stats_path = "class_stats.json"
 
 [predict.data]
 # Preprocess for inference (should mirror [train.data] unless you purposely change it)

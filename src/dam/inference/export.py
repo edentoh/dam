@@ -16,6 +16,16 @@ def _micro_f1_vector(y_true: np.ndarray, y_prob: np.ndarray, thr_vec: np.ndarray
     denom = (2 * tp + fp + fn)
     return (2 * tp / denom) if denom > 0 else 0.0
 
+def _macro_f1_vector(y_true: np.ndarray, y_prob: np.ndarray, thr_vec: np.ndarray) -> float:
+    y_pred = (y_prob >= thr_vec.reshape(1, -1)).astype(np.int32)
+    y_true_i = y_true.astype(np.int32)
+    tp = (y_pred & y_true_i).sum(axis=0)
+    fp = (y_pred & (1 - y_true_i)).sum(axis=0)
+    fn = ((1 - y_pred) & y_true_i).sum(axis=0)
+    denom = (2 * tp + fp + fn)
+    f1 = np.where(denom > 0, (2 * tp / denom), 0.0)
+    return float(f1.mean())
+
 def save_predictions_to_excel(
     probs_by_id: dict, 
     label_map: dict, 
@@ -46,6 +56,19 @@ def save_predictions_to_excel(
     total_row_pred = pd.DataFrame([["Total", *totals_01.tolist()]], columns=["Item", *cols])
     df_pred = pd.concat([df_pred, total_row_pred], ignore_index=True)
 
+    # Ground-truth sheet (aligned to prediction columns)
+    df_gt = None
+    if label_map:
+        gt = np.full((len(thr_vec), len(ordered_ids)), np.nan, dtype=np.float32)
+        for j, img_id in enumerate(ordered_ids):
+            if img_id in label_map:
+                gt[:, j] = label_map[img_id]
+        df_gt = pd.DataFrame(gt, columns=cols)
+        df_gt.insert(0, "Item", [f"Item {i}" for i in range(1, 49)])
+        total_gt = np.nansum(gt, axis=0)
+        total_row_gt = pd.DataFrame([["Total", *total_gt.tolist()]], columns=["Item", *cols])
+        df_gt = pd.concat([df_gt, total_row_gt], ignore_index=True)
+
     # Metrics logic
     metrics_rows = []
     per_item_rows = []
@@ -63,10 +86,12 @@ def save_predictions_to_excel(
         y_prob_labeled = np.stack([probs_by_id[i] for i in common_ids], axis=0).astype(np.float32)
 
         acc_overall = _elementwise_accuracy_vector(y_true, y_prob_labeled, thr_vec)
-        f1_overall = _micro_f1_vector(y_true, y_prob_labeled, thr_vec)
+        micro_f1_overall = _micro_f1_vector(y_true, y_prob_labeled, thr_vec)
+        macro_f1_overall = _macro_f1_vector(y_true, y_prob_labeled, thr_vec)
 
         metrics_rows.append(["elementwise_accuracy_overall", acc_overall])
-        metrics_rows.append(["micro_f1_overall", f1_overall])
+        metrics_rows.append(["micro_f1_overall", micro_f1_overall])
+        metrics_rows.append(["macro_f1_overall", macro_f1_overall])
 
         # Per-item metrics
         y_pred_labeled = (y_prob_labeled >= thr_vec.reshape(1, -1)).astype(np.int32)
@@ -74,17 +99,25 @@ def save_predictions_to_excel(
 
         for k in range(num_classes):
             item_acc = float((y_pred_labeled[:, k] == y_true_i[:, k]).mean())
-            per_item_rows.append([f"Item {k+1}", float(thr_vec[k]), item_acc])
+            tp = int(((y_pred_labeled[:, k] == 1) & (y_true_i[:, k] == 1)).sum())
+            fp = int(((y_pred_labeled[:, k] == 1) & (y_true_i[:, k] == 0)).sum())
+            fn = int(((y_pred_labeled[:, k] == 0) & (y_true_i[:, k] == 1)).sum())
+            prec = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
+            rec = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+            f1 = (2 * tp / (2 * tp + fp + fn)) if (2 * tp + fp + fn) > 0 else 0.0
+            per_item_rows.append([f"Item {k+1}", float(thr_vec[k]), item_acc, prec, rec, f1])
     else:
         metrics_rows.append(["info", "No matching labels found for metrics."])
 
     df_metrics_summary = pd.DataFrame(metrics_rows, columns=["metric", "value"])
-    df_metrics_per_item = pd.DataFrame(per_item_rows, columns=["item", "threshold", "accuracy"])
+    df_metrics_per_item = pd.DataFrame(per_item_rows, columns=["item", "threshold", "accuracy", "precision", "recall", "f1"])
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
         df_pred.to_excel(writer, index=False, sheet_name="Predictions_0_1")
         df_prob.to_excel(writer, index=False, sheet_name="Probabilities_0_1")
+        if df_gt is not None:
+            df_gt.to_excel(writer, index=False, sheet_name="GroundTruth_0_1")
         df_metrics_summary.to_excel(writer, index=False, sheet_name="Metrics_Summary")
         df_metrics_per_item.to_excel(writer, index=False, sheet_name="Metrics_PerItem")
     

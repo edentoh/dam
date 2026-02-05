@@ -1,13 +1,15 @@
 import torch
 import numpy as np
+from copy import deepcopy
 from pathlib import Path
 from torch.utils.data import DataLoader
 
 # Internal
-from dam.modeling.builder import build_model
+from dam.modeling.builder import ModelBuilder
 from dam.data.datasets import InferenceDataset
 from dam.data.transforms import build_transforms
 from .utils import safe_num_workers
+from .calibration import CorrelationCalibrator
 
 class DAMPredictor:
     """
@@ -30,9 +32,12 @@ class DAMPredictor:
         self.img_size = int(ckpt.get("img_size", data_cfg.get("img_size", 384)))
 
         # Build Model
-        backbone = cfg["model"]["backbone"]
         num_classes = int(cfg["model"].get("num_classes", 48))
-        self.model = build_model(backbone, num_classes=num_classes, pretrained=False)
+        cfg_build = deepcopy(cfg)
+        cfg_build.setdefault("model", {})
+        cfg_build["model"]["pretrained"] = False
+        cfg_build["model"]["use_pose_pretrain"] = False
+        self.model = ModelBuilder.build(cfg_build, self.device)
         
         # Load State
         state = ckpt["model_state"] if isinstance(ckpt, dict) and "model_state" in ckpt else ckpt
@@ -43,6 +48,7 @@ class DAMPredictor:
         # Build Transforms
         # We pass the config. build_transforms looks for [predict.data] automatically if is_train=False
         self.transform = build_transforms(cfg, is_train=False)
+        self.calibrator = CorrelationCalibrator(cfg, self.model_path, num_classes)
 
     def predict_batch(self, items: list) -> dict:
         """
@@ -69,9 +75,16 @@ class DAMPredictor:
         with torch.no_grad():
             for img_ids, x in loader:
                 x = x.to(self.device, non_blocking=True)
-                logits = self.model(x)
+                outputs = self.model(x)
+                if isinstance(outputs, dict):
+                    logits = outputs.get("logits", outputs)
+                elif isinstance(outputs, (tuple, list)):
+                    logits = outputs[0]
+                else:
+                    logits = outputs
                 # Sigmoid -> CPU -> Numpy
                 probs = torch.sigmoid(logits).detach().cpu().numpy().astype(np.float32)
+                probs = self.calibrator.apply(probs)
                 
                 for i, img_id in enumerate(img_ids):
                     probs_by_id[str(img_id)] = probs[i]

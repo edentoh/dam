@@ -36,8 +36,16 @@ def calculate_and_print_metrics(probs_by_id, label_map, thr_vec):
     fn = np.sum((y_pred == 0) & (y_true == 1))
     micro_f1 = (2 * tp) / (2 * tp + fp + fn + 1e-9)
 
+    # 3. Macro F1
+    tp_c = np.sum((y_pred == 1) & (y_true == 1), axis=0)
+    fp_c = np.sum((y_pred == 1) & (y_true == 0), axis=0)
+    fn_c = np.sum((y_pred == 0) & (y_true == 1), axis=0)
+    denom = (2 * tp_c + fp_c + fn_c + 1e-9)
+    macro_f1 = np.mean((2 * tp_c) / denom)
+
     print(f"-> Accuracy (Elem-wise): {acc:.4f}")
     print(f"-> Micro F1:             {micro_f1:.4f}")
+    print(f"-> Macro F1:             {macro_f1:.4f}")
 
 
 def main():
