@@ -80,9 +80,9 @@ def build_transforms(cfg: dict, is_train: bool = False):
     if is_train:
         # Training Augmentations
         ops.extend([
-            transforms.RandomResizedCrop(size, scale=(0.65, 1.0), ratio=(0.85, 1.15)),
-            transforms.RandomApply([transforms.ColorJitter(0.35, 0.35)], p=0.9),
-            transforms.RandomAffine(12, (0.06, 0.06), (0.9, 1.1), 6),
+            transforms.RandomResizedCrop(size, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
+            transforms.RandomApply([transforms.ColorJitter(0.15, 0.15)], p=0.5),
+            transforms.RandomAffine(12, (0.03, 0.03), (0.95, 1.05), 3),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])

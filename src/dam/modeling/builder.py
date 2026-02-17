@@ -84,11 +84,12 @@ class ModelBuilder:
         num_classes = int(model_cfg.get("num_classes", 48))
         pretrained = bool(model_cfg.get("pretrained", True))
         head_type = str(model_cfg.get("head_type", "linear")).lower()
+        drop_path_rate = float(model_cfg.get("drop_path_rate", 0.0))
 
         aux_cfg = cfg.get("aux_head", {})
         aux_enabled = bool(aux_cfg.get("enabled", False))
 
-        print(f"[Model] Building: {backbone} (pretrained={pretrained})")
+        print(f"[Model] Building: {backbone} (pretrained={pretrained}, drop_path_rate={drop_path_rate})")
         
         # --- HuggingFace Path ---
         if str(backbone).strip().lower().startswith("hf:"):
@@ -165,7 +166,15 @@ class ModelBuilder:
             backbone,
             pretrained=pretrained,
             num_classes=0,
+            drop_path_rate=drop_path_rate,
         )
+        use_grad_checkpointing = bool(model_cfg.get("grad_checkpointing", False))
+        if use_grad_checkpointing:
+            if hasattr(backbone_model, "set_grad_checkpointing"):
+                backbone_model.set_grad_checkpointing(True)
+                print("[Model] Gradient checkpointing enabled for backbone.")
+            else:
+                print("[Model] Warning: gradient checkpointing requested but unsupported by this backbone.")
         backbone_wrap = BackboneWrapper(backbone_model)
         in_dim = getattr(backbone_wrap, "num_features", None)
         if in_dim is None:

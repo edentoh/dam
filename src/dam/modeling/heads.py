@@ -8,6 +8,10 @@ import torch.nn as nn
 
 def _to_sequence(feats: torch.Tensor) -> torch.Tensor:
     if feats.ndim == 4:
+        # Handle both channels-first (B, C, H, W) and channels-last (B, H, W, C)
+        if feats.shape[-1] > feats.shape[1] and feats.shape[-1] > feats.shape[2]:
+            b, h, w, c = feats.shape
+            return feats.reshape(b, h * w, c)
         # (B, C, H, W) -> (B, HW, C)
         b, c, h, w = feats.shape
         return feats.reshape(b, c, h * w).transpose(1, 2)
@@ -22,6 +26,9 @@ def _to_sequence(feats: torch.Tensor) -> torch.Tensor:
 
 def _pool_features(feats: torch.Tensor) -> torch.Tensor:
     if feats.ndim == 4:
+        # Handle both channels-first and channels-last
+        if feats.shape[-1] > feats.shape[1] and feats.shape[-1] > feats.shape[2]:
+            return feats.mean(dim=(1, 2))
         return feats.mean(dim=(2, 3))
     if feats.ndim == 3:
         return feats.mean(dim=1)

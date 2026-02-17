@@ -51,7 +51,7 @@ use_weighted_loss = true
 pos_weight_clamp = 10.0
 
 # Which validation metric decides "best.pth":
-# 'val_f1_micro', 'val_f1_macro', 'val_map_micro', or 'val_map_macro'
+# 'val_f1_micro', 'val_f1_macro', 'val_map_micro', 'val_map_macro', or 'val_loss'
 metric_for_best = "val_map_macro"
 
 # ASL settings

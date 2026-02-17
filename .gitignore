@@ -22,6 +22,7 @@ venv/
 # --- local configs ---
 configs/config_score.toml
 configs/config_gate.toml
+configs/config_total_score.toml
 
 # --- Datasets / images (your folders) ---
 img_dataset/
@@ -54,6 +55,7 @@ pad_filename.py
 rename_file.py
 label_correlation_report.py
 notebooks/
+train_total_score.py
 
 # --- Website / deployment ---
 
