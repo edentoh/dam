@@ -151,8 +151,15 @@ async def predict(
     # 4. Main Inference
     x = ctx.tfm(img).unsqueeze(0).to(ctx.device)
 
+    def _extract_logits(outputs):
+        if isinstance(outputs, dict):
+            return outputs.get("logits", outputs)
+        if isinstance(outputs, (tuple, list)):
+            return outputs[0] if len(outputs) > 0 else outputs
+        return outputs
+
     with torch.no_grad():
-        logits = ctx.model(x)
+        logits = _extract_logits(ctx.model(x))
         prob = torch.sigmoid(logits).squeeze(0).detach().cpu().numpy().astype(np.float32)
 
     # 5. TTA Flip (Optional, for Stability Gate)
@@ -161,7 +168,7 @@ async def predict(
         img_flip = img.transpose(Image.FLIP_LEFT_RIGHT)
         x2 = ctx.tfm(img_flip).unsqueeze(0).to(ctx.device)
         with torch.no_grad():
-            logits2 = ctx.model(x2)
+            logits2 = _extract_logits(ctx.model(x2))
             prob_flip = torch.sigmoid(logits2).squeeze(0).detach().cpu().numpy().astype(np.float32)
 
     # 6. Stability Gate

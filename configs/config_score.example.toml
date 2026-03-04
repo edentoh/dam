@@ -8,6 +8,8 @@ runs_dir = "runs"
 [model]
 pretrained = true
 backbone = "convnextv2_tiny"
+drop_path_rate = 0.0
+grad_checkpointing = false
 head_type = "ml_decoder"
 ml_decoder_dim = 512
 ml_decoder_num_heads = 8
@@ -23,6 +25,9 @@ pose_pretrain_backbone = "runs/pose_pretrain_convnext_tiny/backbone_pretrain.pth
 [train]
 epochs = 100
 batch_size = 16
+grad_accum_steps = 1
+use_amp = true
+amp_dtype = "fp16" # "fp16" (uses GradScaler) or "bf16"
 learning_rate = 0.00005
 weight_decay = 0.3
 # Hybrid schedule: freeze pretrained backbone for first N epochs, then unfreeze.
@@ -47,6 +52,9 @@ loss = "bce"
 
 lr_milestones = [15, 30, 45, 60, 75, 90]
 lr_gamma = 0.5
+lr_scheduler = "multistep" # "multistep" or "cosine"
+cosine_t_max = 100
+cosine_eta_min = 0.000001
 use_weighted_loss = true
 pos_weight_clamp = 10.0
 
@@ -65,6 +73,17 @@ use_class_masking = true
 min_pos_for_loss = 1
 rare_pos_threshold = 10
 rare_weight_factor = 0.3
+
+[train.sampler]
+# Long-tail handling at sampling time (multi-label aware)
+enabled = false
+alpha = 0.5
+aggregation = "max" # "max" or "mean" over positive class weights per sample
+min_weight = 1.0
+max_weight = 4.0
+normalize = true
+num_samples_multiplier = 1.0
+replacement = true
 
 [train.data]
 # Labels spreadsheet (first 48 rows are criteria; columns like "Image 001" ...)
@@ -96,6 +115,9 @@ enabled = true
 type = "total_score"
 loss = "mse"
 weight = 0.2
+use_pcgrad = true
+decay_after_unfreeze = true
+post_warmup_decay_factor = 0.1
 normalize_target = true
 
 # =============================================
@@ -130,6 +152,19 @@ require_threshold_vector = true
 use_correlation_calibration = true
 correlation_stats_path = "correlation_stats.json"
 class_stats_path = "class_stats.json"
+
+[predict.threshold_fit]
+# Threshold optimizer settings for scripts/compute_threshold_vector.py
+num_steps = 1001
+max_rounds = 20
+min_threshold = 0.0
+max_threshold = 0.9
+tie_break = "closest_to_0.5" # "closest_to_0.5", "highest", "lowest"
+score_tolerance = 0.0
+toward_highest = 0.0
+enforce_no_perf_drop = true
+perf_drop_tolerance = 0.0
+safe_search_steps = 201
 
 [predict.data]
 # Preprocess for inference (should mirror [train.data] unless you purposely change it)

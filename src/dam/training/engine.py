@@ -404,7 +404,9 @@ class Trainer:
                     "saved_at": datetime.now().isoformat(timespec="seconds"),
                     "run_dir": str(self.run_dir),
                     "best_epoch": int(ep),
+                    "metric_for_best": str(metric_key),
                     "best_metric_val": float(best_metric),
+                    "epoch_metrics": row,
                     "checkpoint_path": str(best_path),
                 }
                 atomic_write_json(self.run_dir / "best_model_metadata.json", best_meta)

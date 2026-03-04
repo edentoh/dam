@@ -1,5 +1,6 @@
 import os
 import time
+import copy
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
@@ -16,6 +17,7 @@ load_dotenv()
 # --- Internal Imports (No more config.py) ---
 from dam.data.transforms import CropToInk
 from dam.inference.thresholds import load_threshold_vector
+from dam.modeling.builder import ModelBuilder
 
 # --- Helper Functions ---
 def _env_bool(name: str, default: bool) -> bool:
@@ -119,10 +121,50 @@ class InferenceContext:
         
         print(f"Loading Main Model: {self.backbone} from {model_path}")
         ckpt = torch.load(model_path, map_location="cpu")
-        
-        self.model = timm.create_model(self.backbone, pretrained=False, num_classes=self.num_classes)
-        state = ckpt.get("model_state", ckpt)
-        self.model.load_state_dict(state, strict=True)
+
+        state = ckpt.get("model_state", ckpt) if isinstance(ckpt, dict) else ckpt
+        loaded_via_checkpoint_cfg = False
+
+        # Preferred path: build exactly the same architecture as training using ckpt["config"].
+        if isinstance(ckpt, dict) and isinstance(ckpt.get("config"), dict):
+            try:
+                ckpt_cfg = copy.deepcopy(ckpt["config"])
+                ckpt_cfg.setdefault("model", {})
+
+                # For inference loading we only need architecture, not pretrained init / pose init.
+                ckpt_cfg["model"]["pretrained"] = False
+                ckpt_cfg["model"]["use_pose_pretrain"] = False
+
+                self.model = ModelBuilder.build(ckpt_cfg, self.device)
+                self.model.load_state_dict(state, strict=True)
+
+                self.backbone = str(ckpt_cfg.get("model", {}).get("backbone", self.backbone))
+                self.num_classes = int(ckpt_cfg.get("model", {}).get("num_classes", self.num_classes))
+                self.img_size = int(
+                    ckpt.get(
+                        "img_size",
+                        ckpt_cfg.get("predict", {}).get("data", {}).get(
+                            "img_size",
+                            ckpt_cfg.get("train", {}).get("data", {}).get("img_size", self.img_size),
+                        ),
+                    )
+                )
+                loaded_via_checkpoint_cfg = True
+                print(
+                    f"[Model] Loaded via checkpoint config | "
+                    f"backbone={self.backbone}, num_classes={self.num_classes}, img_size={self.img_size}"
+                )
+            except Exception as e:
+                print(f"[Model] Warning: checkpoint-config load failed, falling back to env model settings. Error: {e}")
+
+        if not loaded_via_checkpoint_cfg:
+            self.model = timm.create_model(self.backbone, pretrained=False, num_classes=self.num_classes)
+            self.model.load_state_dict(state, strict=True)
+            print(
+                f"[Model] Loaded via env settings | "
+                f"backbone={self.backbone}, num_classes={self.num_classes}, img_size={self.img_size}"
+            )
+
         self.model.to(self.device)
         self.model.eval()
         

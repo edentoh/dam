@@ -29,6 +29,14 @@ def _safe_float(x, default=0.0):
         return float(default)
 
 
+def _pick_best_epoch_row(epochs: list[dict], metric_key: str) -> dict | None:
+    if not epochs:
+        return None
+    if metric_key == "val_loss":
+        return min(epochs, key=lambda r: _safe_float(r.get("val_loss", float("inf")), float("inf")))
+    return max(epochs, key=lambda r: _safe_float(r.get(metric_key, 0.0)))
+
+
 def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: int, cv_seed: int):
     """
     Aggregates results from multiple fold directories into a single summary JSON.
@@ -39,18 +47,36 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
     for i, fd in enumerate(fold_dirs, start=1):
         best_meta_path = fd / "best_model_metadata.json"
         history_path = fd / "history.json"
+        hist = load_json(history_path) if history_path.exists() else {}
+        epochs = hist.get("epochs", []) if isinstance(hist, dict) else []
 
         if best_meta_path.exists():
             best_meta = load_json(best_meta_path)
-            epoch_metrics = best_meta.get("epoch_metrics", {})
+            best_epoch = int(best_meta.get("best_epoch", 0) or 0)
+            metric_for_best = str(best_meta.get("metric_for_best", metric_key))
+            epoch_metrics = best_meta.get("epoch_metrics")
+
+            if (not isinstance(epoch_metrics, dict) or not epoch_metrics) and epochs:
+                if best_epoch > 0:
+                    epoch_metrics = next((r for r in epochs if int(r.get("epoch", 0) or 0) == best_epoch), None)
+                if not epoch_metrics:
+                    epoch_metrics = _pick_best_epoch_row(epochs, metric_for_best)
+
+            if not isinstance(epoch_metrics, dict):
+                epoch_metrics = {}
+
             fold_rows.append({
                 "fold": i,
                 "fold_dir": str(fd),
                 "best_epoch": int(best_meta.get("best_epoch", epoch_metrics.get("epoch", 0) or 0)),
-                "metric_for_best": str(best_meta.get("metric_for_best", metric_key)),
-                "best_metric_val": _safe_float(best_meta.get("best_metric_val", 0.0)),
+                "metric_for_best": metric_for_best,
+                "best_metric_val": _safe_float(
+                    best_meta.get("best_metric_val", epoch_metrics.get(metric_for_best, 0.0))
+                ),
                 "val_f1_micro": _safe_float(epoch_metrics.get("val_f1_micro", 0.0)),
                 "val_f1_macro": _safe_float(epoch_metrics.get("val_f1_macro", 0.0)),
+                "val_map_micro": _safe_float(epoch_metrics.get("val_map_micro", 0.0)),
+                "val_map_macro": _safe_float(epoch_metrics.get("val_map_macro", 0.0)),
                 "val_acc": _safe_float(epoch_metrics.get("val_acc", 0.0)),
                 "val_loss": _safe_float(epoch_metrics.get("val_loss", 0.0)),
                 "train_loss": _safe_float(epoch_metrics.get("train_loss", 0.0)),
@@ -58,25 +84,26 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
             continue
 
         # Fallback: reconstruct best epoch from history.json
-        if history_path.exists():
-            hist = load_json(history_path)
-            epochs = hist.get("epochs", [])
-            if epochs:
-                key = metric_key
-                best_row = max(epochs, key=lambda r: _safe_float(r.get(key, 0.0)))
-                fold_rows.append({
-                    "fold": i,
-                    "fold_dir": str(fd),
-                    "best_epoch": int(best_row.get("epoch", 0) or 0),
-                    "metric_for_best": str(metric_key),
-                    "best_metric_val": _safe_float(best_row.get(metric_key, 0.0)),
-                    "val_f1_micro": _safe_float(best_row.get("val_f1_micro", 0.0)),
-                    "val_f1_macro": _safe_float(best_row.get("val_f1_macro", 0.0)),
-                    "val_acc": _safe_float(best_row.get("val_acc", 0.0)),
-                    "val_loss": _safe_float(best_row.get("val_loss", 0.0)),
-                    "train_loss": _safe_float(best_row.get("train_loss", 0.0)),
-                })
+        if epochs:
+            key = metric_key
+            best_row = _pick_best_epoch_row(epochs, key)
+            if not best_row:
                 continue
+            fold_rows.append({
+                "fold": i,
+                "fold_dir": str(fd),
+                "best_epoch": int(best_row.get("epoch", 0) or 0),
+                "metric_for_best": str(metric_key),
+                "best_metric_val": _safe_float(best_row.get(metric_key, 0.0)),
+                "val_f1_micro": _safe_float(best_row.get("val_f1_micro", 0.0)),
+                "val_f1_macro": _safe_float(best_row.get("val_f1_macro", 0.0)),
+                "val_map_micro": _safe_float(best_row.get("val_map_micro", 0.0)),
+                "val_map_macro": _safe_float(best_row.get("val_map_macro", 0.0)),
+                "val_acc": _safe_float(best_row.get("val_acc", 0.0)),
+                "val_loss": _safe_float(best_row.get("val_loss", 0.0)),
+                "train_loss": _safe_float(best_row.get("train_loss", 0.0)),
+            })
+            continue
 
         fold_rows.append({
             "fold": i,
@@ -107,6 +134,8 @@ def summarize_cv(base_dir: Path, fold_dirs: list[Path], cfg: dict, num_folds: in
             "best_metric_val": agg("best_metric_val"),
             "val_f1_micro": agg("val_f1_micro"),
             "val_f1_macro": agg("val_f1_macro"),
+            "val_map_micro": agg("val_map_micro"),
+            "val_map_macro": agg("val_map_macro"),
             "val_acc": agg("val_acc"),
             "val_loss": agg("val_loss"),
             "train_loss": agg("train_loss"),
@@ -133,11 +162,20 @@ def train_single_run(cfg, run_dir, train_loader, val_loader, train_items, device
     optimizer = build_optimizer(cfg, model)
 
     # 3. Setup Scheduler
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer,
-        milestones=cfg["train"].get("lr_milestones", [15, 30]),
-        gamma=cfg["train"].get("lr_gamma", 0.1),
-    )
+    train_cfg = cfg.get("train", {})
+    scheduler_name = str(train_cfg.get("lr_scheduler", "multistep")).strip().lower()
+    if scheduler_name == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=int(train_cfg.get("cosine_t_max", train_cfg.get("epochs", 1))),
+            eta_min=float(train_cfg.get("cosine_eta_min", 0.0)),
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=train_cfg.get("lr_milestones", [15, 30]),
+            gamma=float(train_cfg.get("lr_gamma", 0.1)),
+        )
 
     # 4. Initialize Trainer
     trainer = Trainer(

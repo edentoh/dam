@@ -25,7 +25,7 @@ configs/config_gate.toml
 configs/config_total_score.toml
 
 # --- Datasets / images (your folders) ---
-img_dataset/
+img_dataset_rand/
 image_cropped/
 amateur_drawings/
 labels/
@@ -33,6 +33,7 @@ labels_gate/
 false_images_base_flat/
 false_images/
 cleaned/
+image_dataset*/
 
 # Optional: ignore common image formats anywhere
 *.jpg
@@ -69,3 +70,5 @@ train_total_score.py
 *.xlsx
 *.xls
 *.csv
+*.docx
+*.pdf

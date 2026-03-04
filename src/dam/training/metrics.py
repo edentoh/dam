@@ -10,6 +10,9 @@ def calculate_metrics(y_true, y_prob, threshold=0.5):
         y_prob (Tensor): Sigmoid probabilities (0.0 to 1.0)
         threshold (float): Decision threshold
     """
+    # NumPy/sklearn do not support bfloat16; normalize all metric inputs to float32.
+    y_true = y_true.detach().float()
+    y_prob = y_prob.detach().float()
     y_pred = (y_prob >= threshold).float()
 
     # --- Micro F1 ---
@@ -34,8 +37,8 @@ def calculate_metrics(y_true, y_prob, threshold=0.5):
 
     # --- mAP (average precision) ---
     # Convert to numpy for sklearn
-    y_true_np = y_true.detach().cpu().numpy()
-    y_prob_np = y_prob.detach().cpu().numpy()
+    y_true_np = y_true.cpu().numpy()
+    y_prob_np = y_prob.cpu().numpy()
     try:
         # For macro mAP, ignore classes with no positive samples in y_true
         pos_counts = y_true_np.sum(axis=0)

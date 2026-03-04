@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from torch.utils.data import DataLoader
+import torch
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 # Internal imports
 from dam.utils.identifiers import extract_id  # Assumed to be created in the utils step
@@ -91,11 +92,16 @@ class DataManager:
         # Build transforms
         train_tfm = build_transforms(self.cfg, is_train=True)
         val_tfm = build_transforms(self.cfg, is_train=False)
+        train_ds = DAMDataset(train_items, train_tfm)
+
+        train_sampler = self._build_train_sampler(train_items)
+        shuffle_train = train_sampler is None
 
         train_loader = DataLoader(
-            DAMDataset(train_items, train_tfm),
+            train_ds,
             batch_size=bs,
-            shuffle=True,
+            shuffle=shuffle_train,
+            sampler=train_sampler,
             num_workers=nw,
             pin_memory=True,
         )
@@ -107,6 +113,60 @@ class DataManager:
             pin_memory=True,
         )
         return train_loader, val_loader
+
+    def _build_train_sampler(self, train_items):
+        sampler_cfg = self.train_cfg.get("sampler", {})
+        if not bool(sampler_cfg.get("enabled", False)):
+            return None
+        if not train_items:
+            return None
+
+        ys = [np.asarray(it[1], dtype=np.float32) for it in train_items]
+        y = np.stack(ys, axis=0)
+        y_bin = (y > 0).astype(np.float32)
+        n_images, num_classes = y_bin.shape
+
+        pos_counts = y_bin.sum(axis=0)
+        valid = pos_counts > 0
+
+        alpha = float(sampler_cfg.get("alpha", 0.5))
+        class_weights = np.ones(num_classes, dtype=np.float32)
+        class_weights[valid] = np.power(n_images / pos_counts[valid], alpha)
+
+        agg = str(sampler_cfg.get("aggregation", "max")).strip().lower()
+        pos_per_sample = y_bin.sum(axis=1)
+        if agg == "mean":
+            denom = np.clip(pos_per_sample, 1.0, None)
+            sample_weights = (y_bin * class_weights).sum(axis=1) / denom
+        else:
+            sample_weights = (y_bin * class_weights).max(axis=1)
+
+        sample_weights[pos_per_sample <= 0] = 1.0
+
+        min_weight = float(sampler_cfg.get("min_weight", 1.0))
+        max_weight = float(sampler_cfg.get("max_weight", 4.0))
+        sample_weights = np.clip(sample_weights, min_weight, max_weight).astype(np.float64)
+
+        if bool(sampler_cfg.get("normalize", True)):
+            mean_w = float(sample_weights.mean())
+            if mean_w > 0:
+                sample_weights = sample_weights / mean_w
+
+        mult = float(sampler_cfg.get("num_samples_multiplier", 1.0))
+        num_samples = max(1, int(round(len(train_items) * mult)))
+        replacement = bool(sampler_cfg.get("replacement", True))
+
+        print(
+            "[Sampler] WeightedRandomSampler enabled | "
+            f"alpha={alpha:.3f} agg={agg} min/max=({min_weight:.2f},{max_weight:.2f}) "
+            f"num_samples={num_samples} replacement={replacement}"
+        )
+
+        return WeightedRandomSampler(
+            weights=torch.as_tensor(sample_weights, dtype=torch.double),
+            num_samples=num_samples,
+            replacement=replacement,
+        )
 
     def get_fixed_loaders(self):
         """
