@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import Union, Dict, Optional
+from PIL import Image, UnidentifiedImageError
 from dam.utils.identifiers import extract_id
 
 def list_images(folder: Path) -> Dict[str, Path]:
@@ -12,6 +13,12 @@ def list_images(folder: Path) -> Dict[str, Path]:
         raise FileNotFoundError(f"Input image dir not found: {folder}")
     for p in folder.rglob("*"):
         if p.is_file() and p.suffix.lower() in exts:
+            try:
+                with Image.open(p) as img:
+                    img.verify()
+            except (UnidentifiedImageError, OSError, ValueError) as exc:
+                print(f"[list_images] Skipping unreadable image: {p} ({exc})")
+                continue
             img_id = extract_id(p.name)
             if img_id:
                 out[img_id] = p

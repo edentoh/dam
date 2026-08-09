@@ -91,8 +91,14 @@ def main():
     probs_by_id = predictor.predict_batch(items)
 
     # 5. Load Labels (Optional)
-    labels_path = get_labels_path_for_predict(cfg)
-    label_map = load_labels_lenient(Path(labels_path)) if labels_path else {}
+    labels_cfg = predict_cfg.get("labels", {})
+    use_gt = bool(labels_cfg.get("use_gt", True))
+    if use_gt:
+        labels_path = get_labels_path_for_predict(cfg)
+        label_map = load_labels_lenient(Path(labels_path)) if labels_path else {}
+    else:
+        label_map = {}
+        print("Ground truth disabled via [predict.labels].use_gt=false. Skipping labels and metrics.")
 
     # 6. Calculate & Print Metrics
     calculate_and_print_metrics(probs_by_id, label_map, thr_vec)

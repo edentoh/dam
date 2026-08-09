@@ -59,7 +59,7 @@ def gate_image_heuristics(img: Image.Image, cfg: Optional[Dict[str, Any]] = None
     feats = compute_image_features(img, cfg)
 
     min_side_px = int(_cfg_get(cfg, "min_side_px", 256))
-    min_mean_gray = float(_cfg_get(cfg, "min_mean_gray", 60.0))
+    min_mean_gray = float(_cfg_get(cfg, "min_mean_gray", 50.0))
     min_ink_frac = float(_cfg_get(cfg, "min_ink_frac", 0.002))
     max_ink_frac = float(_cfg_get(cfg, "max_ink_frac", 0.35))
     

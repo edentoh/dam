@@ -37,6 +37,13 @@
 
     h2, h3 { margin-top: 0; }
 
+    .form-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr;
+      margin-bottom: 16px;
+    }
+
     input[type="text"], input[type="password"] {
       padding: 12px;
       border: 1px solid var(--border);
@@ -112,11 +119,18 @@
       margin-bottom: 16px;
     }
 
+    .camera-frame {
+      width: min(100%, 70vh);
+      aspect-ratio: 1 / 1;
+      margin: 0 auto;
+      background: #000;
+      overflow: hidden;
+    }
+
     video, #photoPreview {
       width: 100%;
-      height: auto;
-      max-height: 60vh;
-      object-fit: contain;
+      height: 100%;
+      object-fit: cover;
       display: block;
       background: #000;
     }
@@ -158,6 +172,7 @@
     }
     .yes { background: #d4edda; color: #155724; }
     .no { background: #f8d7da; color: #721c24; }
+
   </style>
 </head>
 <body>
@@ -165,7 +180,7 @@
 <div class="container">
   <h2>DAM Predictor</h2>
 
-  <div class="summary-card" id="uploadHelp" style="margin: 12px 0 18px 0;">
+  <div class="summary-card" id="uploadHelp" style="display:none;">
     <h3 style="margin: 0 0 8px 0;">Image upload guidelines (Draw-A-Man)</h3>
     <ul style="margin: 0; padding-left: 18px;">
       <li>Upload a <strong>single child’s drawing of a person</strong> (not a photo of a person, not a document/worksheet).</li>
@@ -180,7 +195,7 @@
   </div>
 
 
-  <div style="display: grid; gap: 16px; grid-template-columns: 1fr;">
+  <div class="form-grid">
     <div>
       <label for="apiKey">API Key</label>
       <input type="password" id="apiKey" placeholder="Enter API Key" />
@@ -193,8 +208,10 @@
   </div>
 
   <div id="cameraContainer">
-    <video id="videoFeed" autoplay playsinline muted></video>
-    <img id="photoPreview" alt="Captured photo preview" style="display:none;" />
+    <div class="camera-frame">
+      <video id="videoFeed" autoplay playsinline muted></video>
+      <img id="photoPreview" alt="Captured photo preview" style="display:none;" />
+    </div>
 
     <div class="camera-controls">
       <!-- Live capture controls -->
@@ -308,6 +325,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const analyzeBtn = document.getElementById('analyzeBtn');
   const downloadPdfBtn = document.getElementById('downloadPdfBtn');
   const subjectNameInput = document.getElementById('subjectName');
+  const container = document.querySelector('.container');
+  const resultsArea = document.getElementById('resultsArea');
+  const uploadHelp = document.getElementById('uploadHelp');
 
   let selectedFile = null;
   let currentResults = null;
@@ -315,6 +335,11 @@ document.addEventListener('DOMContentLoaded', () => {
   let stream = null;
   let capturedBlob = null;
   let previewUrl = null;
+
+  if (uploadHelp && container && resultsArea) {
+    container.insertBefore(uploadHelp, resultsArea);
+    uploadHelp.style.display = 'block';
+  }
 
   // --- UPLOAD HANDLERS ---
   dropZone.addEventListener('click', () => fileInput.click());
@@ -371,10 +396,24 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    canvas.width = videoFeed.videoWidth;
-    canvas.height = videoFeed.videoHeight;
+    const sourceSize = Math.min(videoFeed.videoWidth, videoFeed.videoHeight);
+    const sourceX = Math.floor((videoFeed.videoWidth - sourceSize) / 2);
+    const sourceY = Math.floor((videoFeed.videoHeight - sourceSize) / 2);
+
+    canvas.width = sourceSize;
+    canvas.height = sourceSize;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(
+      videoFeed,
+      sourceX,
+      sourceY,
+      sourceSize,
+      sourceSize,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
 
     canvas.toBlob(blob => {
       if (!blob) {
@@ -581,6 +620,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById("resultsArea").style.display = "block";
+
+    if (uploadHelp && container) {
+      container.appendChild(uploadHelp);
+    }
   }
 
   // --- PDF GENERATION ---

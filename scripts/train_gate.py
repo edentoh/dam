@@ -9,7 +9,6 @@ from dataclasses import asdict
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-from PIL import Image
 from timm.data import resolve_data_config, create_transform
 
 # --- Modular Imports ---
@@ -17,6 +16,7 @@ from dam.core.config import load_config
 from dam.modeling.builder import build_model
 from dam.utils.seeding import seed_everything
 from dam.utils.io import atomic_write_json, ensure_unique_run_dir
+from dam.utils.image import load_rgb_image
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
@@ -31,8 +31,7 @@ class CSVBinarizedImageDataset(Dataset):
 
     def __getitem__(self, idx: int):
         path, y = self.items[idx]
-        with Image.open(path) as im:
-            im = im.convert("RGB")
+        im = load_rgb_image(path)
         x = self.transform(im)
         y = torch.tensor([float(y)], dtype=torch.float32)
         return x, y, str(path)

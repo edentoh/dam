@@ -26,6 +26,7 @@ from .dependencies import (
     API_KEY # Imported just to check if exists
 )
 from .schemas import PredictResponse, HealthResponse
+from dam.utils.image import load_rgb_image
 
 # --- Constants ---
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -116,7 +117,7 @@ async def predict(
         raise HTTPException(status_code=413, detail=f"File too large. Max {MAX_UPLOAD_BYTES} bytes.")
 
     try:
-        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        img = load_rgb_image(io.BytesIO(raw))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file.")
 
